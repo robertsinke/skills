@@ -1,0 +1,14 @@
+# Heartbeat
+
+tasks:
+  - name: example-check
+    interval: 30m
+    prompt: "Describe what to check here."
+
+Reply HEARTBEAT_OK if nothing needs attention.
+
+
+
+
+
+
