@@ -5,6 +5,7 @@ set -euo pipefail
 # by each agent harness:
 #   - ~/.claude/skills: Claude Code
 #   - ~/.agents/skills: Codex and other Agent Skills-compatible harnesses
+# Also symlinks the heartbeat CLI onto PATH via ~/.agents/bin.
 # Each entry is a symlink into this repo, so a `git pull` keeps it up to date.
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
@@ -31,6 +32,33 @@ for DEST in "${DESTS[@]}"; do
     echo "linked $name -> $src ($DEST)"
   done
 done
+
+# CLI: symlink the heartbeat entrypoint onto PATH via ~/.agents/bin.
+BIN_DEST="$HOME/.agents/bin"
+mkdir -p "$BIN_DEST"
+if [ -f "$REPO/skills/automations/heartbeat/scripts/heartbeat" ]; then
+  chmod +x "$REPO/skills/automations/heartbeat/scripts/heartbeat"
+  ln -sfn "$REPO/skills/automations/heartbeat/scripts/heartbeat" "$BIN_DEST/heartbeat"
+  echo "linked heartbeat -> $REPO/skills/automations/heartbeat/scripts/heartbeat ($BIN_DEST)"
+fi
+
+case ":$PATH:" in
+  *":$BIN_DEST:"*) : ;;
+  *) echo "Note: add $BIN_DEST to your PATH manually, e.g. in ~/.zshrc: export PATH=$BIN_DEST:\$PATH" ;;
+esac
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
