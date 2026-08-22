@@ -1,14 +1,19 @@
 #!/usr/bin/env bash
 # init.sh - scaffold automations/heartbeat/ in the current project.
+# This is the canonical implementation. `heartbeat automations create` just calls this.
 # Run from inside the target project, e.g.:
 #   ~/.claude/skills/heartbeat/scripts/init.sh
+#   (or simply: heartbeat automations create, once the CLI is on PATH)
 set -euo pipefail
 
 SKILL_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PROJECT_DIR="$(pwd)"
 TARGET="$PROJECT_DIR/automations/heartbeat"
+REGISTRY="$HOME/.agents/heartbeat/registry.txt"
 
 mkdir -p "$TARGET"
+mkdir -p "$(dirname "$REGISTRY")"
+touch "$REGISTRY"
 
 [ -f "$TARGET/HEARTBEAT.md" ] || cp "$SKILL_DIR/templates/HEARTBEAT.md.template" "$TARGET/HEARTBEAT.md"
 [ -f "$TARGET/.heartbeat.db" ] || sqlite3 "$TARGET/.heartbeat.db" < "$SKILL_DIR/scripts/schema.sql"
@@ -30,7 +35,15 @@ else
   printf "%s\n" "$POINTER" > "$AGENTS_MD"
 fi
 
+grep -qxF "$PROJECT_DIR" "$REGISTRY" 2>/dev/null || echo "$PROJECT_DIR" >> "$REGISTRY"
+
 echo "heartbeat installed in $TARGET"
+
+
+
+
+
+
 
 
 
