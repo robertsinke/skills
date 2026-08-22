@@ -1,0 +1,295 @@
+#!/usr/bin/env bash
+# heartbeat - CLI for managing filesystem-only local automations.
+set -uo pipefail
+
+SKILL_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+REGISTRY="$HOME/.agents/heartbeat/registry.txt"
+mkdir -p "$(dirname "$REGISTRY")"
+touch "$REGISTRY"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  heartbeat automations create
+  heartbeat automations list
+  heartbeat automations edit
+  heartbeat automations pause
+  heartbeat automations resume
+  heartbeat runs list [--project <path>]
+  heartbeat runs show <id>
+  heartbeat runs annotate <id> "<note>"
+EOF
+}
+
+register_project() {
+  local p="$1"
+  grep -qxF "$p" "$REGISTRY" 2>/dev/null || echo "$p" >> "$REGISTRY"
+}
+
+automations_create() {
+  local project_dir; project_dir="$(pwd)"
+  local target="$project_dir/automations/heartbeat"
+  mkdir -p "$target"
+  [ -f "$target/HEARTBEAT.md" ] || cp "$SKILL_DIR/templates/HEARTBEAT.md.template" "$target/HEARTBEAT.md"
+  [ -f "$target/.heartbeat.db" ] || sqlite3 "$target/.heartbeat.db" < "$SKILL_DIR/scripts/schema.sql"
+  cp -n "$SKILL_DIR/scripts/heartbeat-run.sh" "$target/heartbeat-run.sh" 2>/dev/null || true
+  cp -n "$SKILL_DIR/scripts/heartbeat-report.sh" "$target/heartbeat-report.sh" 2>/dev/null || true
+  chmod +x "$target/heartbeat-run.sh" "$target/heartbeat-report.sh"
+
+  local cron_cmd="cd $target && ./heartbeat-run.sh && ./heartbeat-report.sh"
+  local cron_line="*/30 * * * * $cron_cmd"
+  ( crontab -l 2>/dev/null | grep -vF "$target" ; echo "$cron_line" ) | crontab -
+
+  local agents_md="$project_dir/AGENTS.md"
+  local pointer="## Automation
+Scheduled checks live under automations/. Current: automations/heartbeat/ (checklist: HEARTBEAT.md, history: RUNS.md)."
+  if [ -f "$agents_md" ]; then
+    grep -qF "automations/heartbeat" "$agents_md" || printf "\n%s\n" "$pointer" >> "$agents_md"
+  else
+    printf "%s\n" "$pointer" > "$agents_md"
+  fi
+
+  register_project "$project_dir"
+  echo "heartbeat installed in $target"
+}
+
+automations_list() {
+  if [ ! -s "$REGISTRY" ]; then
+    echo "No automations registered yet. Run: heartbeat automations create (inside a project)."
+    return
+  fi
+  while IFS= read -r p; do
+    [ -d "$p/automations/heartbeat" ] || continue
+    local db="$p/automations/heartbeat/.heartbeat.db"
+    local last="(no runs yet)"
+    if [ -f "$db" ]; then
+      last=$(sqlite3 "$db" "SELECT date || ' ' || time || ' - ' || status FROM runs ORDER BY ts DESC LIMIT 1;" 2>/dev/null)
+      [ -z "$last" ] && last="(no runs yet)"
+    fi
+    printf "%-50s %s\n" "$p" "$last"
+  done < "$REGISTRY"
+}
+
+automations_edit() {
+  local target="./automations/heartbeat/HEARTBEAT.md"
+  if [ ! -f "$target" ]; then
+    echo "No automations/heartbeat/HEARTBEAT.md here. Run: heartbeat automations create (first)." >&2
+    exit 1
+  fi
+  "${EDITOR:-vi}" "$target"
+}
+
+toggle_cron() {
+  local mode="$1"
+  local target="$(pwd)/automations/heartbeat"
+  local tmp; tmp=$(mktemp)
+  crontab -l 2>/dev/null > "$tmp" || true
+  if [ "$mode" = pause ]; then
+    sed -i.bak "\#$target# s/^\([^#]\)/#\1/" "$tmp"
+  else
+    sed -i.bak "\#$target# s/^#//" "$tmp"
+  fi
+  crontab "$tmp"
+  rm -f "$tmp" "$tmp.bak"
+  echo "heartbeat ${mode}d for $target"
+}
+
+runs_list() {
+  local project="$(pwd)"
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --project) project="$2"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+  local db="$project/automations/heartbeat/.heartbeat.db"
+  if [ ! -f "$db" ]; then echo "No .heartbeat.db at $db" >&2; exit 1; fi
+  sqlite3 "$db" ".mode markdown
+.headers on
+SELECT id, date, time, agent, status, duration_ms||'ms' AS duration, input_tokens||'/'||output_tokens AS tokens, printf('\$%.4f', cost_usd) AS cost, substr(output,1,60) AS summary FROM runs ORDER BY ts DESC LIMIT 20;"
+}
+
+runs_show() {
+  local id="$1"
+  local db="./automations/heartbeat/.heartbeat.db"
+  if [ ! -f "$db" ]; then echo "No .heartbeat.db here" >&2; exit 1; fi
+  sqlite3 "$db" ".mode line
+SELECT * FROM runs WHERE id = $id;"
+}
+
+runs_annotate() {
+  local id="$1"
+  local note="$2"
+  local db="./automations/heartbeat/.heartbeat.db"
+  if [ ! -f "$db" ]; then echo "No .heartbeat.db here" >&2; exit 1; fi
+  local note_json
+  note_json=$(python3 -c "import json,sys;print(json.dumps(sys.argv[1]))" "$note")
+  sqlite3 "$db" "UPDATE runs SET note = $note_json WHERE id = $id;"
+  echo "annotated run $id"
+}
+
+cmd="${1:-}"
+sub="${2:-}"
+if [ $# -ge 2 ]; then shift 2; else shift $#; fi
+
+case "$cmd" in
+  automations)
+    case "$sub" in
+      create) automations_create ;;
+      list) automations_list ;;
+      edit) automations_edit ;;
+      pause) toggle_cron pause ;;
+      resume) toggle_cron resume ;;
+      *) usage; exit 1 ;;
+    esac
+    ;;
+  runs)
+    case "$sub" in
+      list) runs_list "$@" ;;
+      show) runs_show "$@" ;;
+      annotate) runs_annotate "$@" ;;
+      *) usage; exit 1 ;;
+    esac
+    ;;
+  *) usage; exit 1 ;;
+esac
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
