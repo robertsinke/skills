@@ -11,7 +11,8 @@ git clone https://github.com/robertsinke/skills.git ~/.local/share/robert-skills
 ```
 
 `git pull` in that clone keeps every installed skill up to date - each one is a symlink
-into this repo, not a copy.
+into this repo, not a copy. The install script also symlinks the `heartbeat` CLI onto
+PATH via `~/.agents/bin` (add that to your PATH if the script tells you to).
 
 ## Skills
 
@@ -26,14 +27,37 @@ Set up in a project:
 
 ```sh
 cd /path/to/any/project
-~/.claude/skills/heartbeat/scripts/init.sh
+heartbeat automations create
 ```
 
 This creates `automations/heartbeat/` in that project (`HEARTBEAT.md` checklist,
-`.heartbeat.db` history, auto-generated `RUNS.md`), registers a cron entry, and points
-the project's `AGENTS.md` at it so any agent working there is aware of it.
+`.heartbeat.db` history, auto-generated `RUNS.md`), registers a cron entry, points
+the project's `AGENTS.md` at it, and registers it in `~/.agents/heartbeat/registry.txt`.
+
+CLI commands:
+
+```sh
+heartbeat automations create               # scaffold + register this project
+heartbeat automations list                 # every registered project + its last run
+heartbeat automations edit                 # open $EDITOR on this project's HEARTBEAT.md
+heartbeat automations pause / resume        # toggle this project's cron entry
+heartbeat runs list [--project <path>]      # recent runs as a markdown table
+heartbeat runs show <id>                    # full row for one run
+heartbeat runs annotate <id> "<note>"       # sanctioned way to edit run history
+```
 
 See `skills/automations/heartbeat/SKILL.md` for full details.
+
+
+
+
+
+
+
+
+
+
+
 
 
 
