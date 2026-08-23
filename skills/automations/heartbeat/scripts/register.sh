@@ -23,12 +23,15 @@ echo "registered $PROJECT_DIR ($REGISTRY)"
 
 AGENTS_MD="$PROJECT_DIR/AGENTS.md"
 POINTER="## Automation
-Scheduled checks live in automations/ (checklist: HEARTBEAT.md, history: RUNS.md; runtime: _heartbeat/)."
+Scheduled automations live in automations/ (overview: DASHBOARD.md, local agent choices: AGENT-OPTIONS.md, history: RUNS.md; runtime: _heartbeat/)."
 if [ -f "$AGENTS_MD" ]; then
   if grep -qF "Scheduled checks live under automations/. Current: automations/heartbeat/" "$AGENTS_MD"; then
-    sed -i.bak 's#Scheduled checks live under automations/. Current: automations/heartbeat/ (checklist: HEARTBEAT.md, history: RUNS.md).#Scheduled checks live in automations/ (checklist: HEARTBEAT.md, history: RUNS.md; runtime: _heartbeat/).#' "$AGENTS_MD"
+    sed -i.bak 's#Scheduled checks live under automations/. Current: automations/heartbeat/ (checklist: HEARTBEAT.md, history: RUNS.md).#Scheduled automations live in automations/ (overview: DASHBOARD.md, local agent choices: AGENT-OPTIONS.md, history: RUNS.md; runtime: _heartbeat/).#' "$AGENTS_MD"
     rm -f "$AGENTS_MD.bak"
-  elif ! grep -qF "Scheduled checks live in automations/" "$AGENTS_MD"; then
+  elif grep -qF "Scheduled checks live in automations/ (checklist: HEARTBEAT.md" "$AGENTS_MD"; then
+    sed -i.bak 's#Scheduled checks live in automations/ (checklist: HEARTBEAT.md, history: RUNS.md; runtime: _heartbeat/).#Scheduled automations live in automations/ (overview: DASHBOARD.md, local agent choices: AGENT-OPTIONS.md, history: RUNS.md; runtime: _heartbeat/).#' "$AGENTS_MD"
+    rm -f "$AGENTS_MD.bak"
+  elif ! grep -qF "Scheduled automations live in automations/" "$AGENTS_MD"; then
     printf "\n%s\n" "$POINTER" >> "$AGENTS_MD"
   fi
 else

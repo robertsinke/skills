@@ -23,14 +23,18 @@ Usage:
 
   heartbeat automations create                          # init + register + schedule enable
   heartbeat automations list                            # every registered project + its last run
-  heartbeat automations show [--project <path>]          # one project: registration, cron state, checklist, last run
-  heartbeat automations edit                             # open $EDITOR on this project's HEARTBEAT.md
+  heartbeat automations show [--project <path>]          # registration, schedule, dashboard, last run
+  heartbeat automations add <name>                       # create one automation from the template
+  heartbeat automations edit <name>                      # edit and validate one automation
   heartbeat automations pause / resume                   # aliases for: schedule disable / schedule enable
   heartbeat automations delete [--purge] [--project <path>]  # schedule disable + unregister (add --purge to also delete files)
 
   heartbeat runs list [--project <path>]                 # recent runs as a markdown table
   heartbeat runs show <id>
   heartbeat runs annotate <id> "<note>"
+
+  heartbeat capabilities refresh                         # rescan local agents, models, and effort
+  heartbeat capabilities show                            # print AGENT-OPTIONS.md
 
 Full reference: reference/CLI.md (next to this skill's SKILL.md)
 EOF
@@ -75,7 +79,8 @@ automations_list() {
 }
 
 automations_show() {
-  local project="$(pwd)"
+  local project
+  project="$(pwd)"
   while [ $# -gt 0 ]; do
     case "$1" in
       --project) project="$2"; shift 2 ;;
@@ -111,10 +116,11 @@ automations_show() {
       echo "Lock: stale (pid $lock_pid no longer running - next run will reclaim it)"
     fi
   fi
-  echo "---- HEARTBEAT.md validation ----"
-  python3 "$runtime/validate-heartbeat.py" "$automations/HEARTBEAT.md" 2>&1 || true
-  echo "---- HEARTBEAT.md ----"
-  cat "$automations/HEARTBEAT.md" 2>/dev/null || echo "(missing)"
+  echo "---- validation ----"
+  python3 "$runtime/validate-heartbeat.py" "$automations" 2>&1 || true
+  python3 "$runtime/heartbeat_engine.py" report "$automations"
+  echo "---- DASHBOARD.md ----"
+  cat "$automations/DASHBOARD.md" 2>/dev/null || echo "(missing)"
   echo "---- last run ----"
   local db="$runtime/.heartbeat.db"
   if [ -f "$db" ]; then
@@ -125,20 +131,33 @@ SELECT * FROM runs ORDER BY ts DESC LIMIT 1;"
   fi
 }
 
+automations_add() {
+  local name="${1:-}"
+  [[ "$name" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]] || { echo "name must be kebab-case" >&2; exit 1; }
+  local target="./automations/$name.md"
+  [ ! -e "$target" ] || { echo "$target already exists" >&2; exit 1; }
+  cp "$SKILL_DIR/templates/AUTOMATION.md.template" "$target"
+  local title; title=$(echo "$name" | tr '-' ' ')
+  sed -i.bak "s/^title: .*/title: $title/; s/^name: .*/name: $name/" "$target" && rm -f "$target.bak"
+  echo "created $target"
+}
+
 automations_edit() {
-  local target="./automations/HEARTBEAT.md"
+  local name="${1:-}"
+  local target="./automations/$name.md"
   if [ ! -f "$target" ]; then
-    echo "No automations/HEARTBEAT.md here. Run: heartbeat automations create (first)." >&2
+    echo "No automation named '$name'. Run: heartbeat automations add $name" >&2
     exit 1
   fi
   "${EDITOR:-vi}" "$target"
   python3 "./automations/_heartbeat/validate-heartbeat.py" "$target" || {
-    echo "warning: HEARTBEAT.md does not pass validation - runs will be logged as status=invalid and skipped until fixed" >&2
+    echo "warning: automation is invalid and will not run until fixed" >&2
   }
 }
 
 automations_delete() {
-  local project="$(pwd)"
+  local project
+  project="$(pwd)"
   local purge=0
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -157,16 +176,17 @@ automations_delete() {
   "$SKILL_DIR/scripts/unregister.sh" "$project"
   if [ "$purge" -eq 1 ]; then
     rm -rf "$runtime"
-    rm -f "$automations/HEARTBEAT.md" "$automations/RUNS.md" "$automations/.ok/templates/heartbeat.md" "$automations/.templates/heartbeat.md"
+    rm -f "$automations/DASHBOARD.md" "$automations/AGENT-OPTIONS.md" "$automations/RUNS.md" "$automations/.ok/templates/automation.md" "$automations/.templates/automation.md"
     echo "Deleted cron entry, registry entry, heartbeat files, and $runtime (history is gone)."
   else
-    echo "Deleted cron entry and registry entry. Files kept in $automations (HEARTBEAT.md, RUNS.md, _heartbeat/.heartbeat.db)."
+    echo "Deleted cron entry and registry entry. Automation files and history remain in $automations."
     echo "Pass --purge to also delete those files."
   fi
 }
 
 runs_list() {
-  local project="$(pwd)"
+  local project
+  project="$(pwd)"
   while [ $# -gt 0 ]; do
     case "$1" in
       --project) project="$2"; shift 2 ;;
@@ -177,7 +197,15 @@ runs_list() {
   if [ ! -f "$db" ]; then echo "No .heartbeat.db at $db" >&2; exit 1; fi
   sqlite3 "$db" ".mode markdown
 .headers on
-SELECT id, date, time, agent, permission_mode, status, duration_ms||'ms' AS duration, input_tokens||'/'||output_tokens AS tokens, printf('\$%.4f', cost_usd) AS cost, substr(output,1,60) AS summary FROM runs ORDER BY ts DESC LIMIT 20;"
+SELECT id, date, time, task, agent, model, effort, status, duration_ms||'ms' AS duration, substr(output,1,60) AS summary FROM runs ORDER BY ts DESC LIMIT 20;"
+}
+
+capabilities() {
+  case "${1:-show}" in
+    refresh) python3 "./automations/_heartbeat/heartbeat_engine.py" scan "./automations" ;;
+    show) cat "./automations/AGENT-OPTIONS.md" ;;
+    *) echo "usage: heartbeat capabilities <refresh|show>" >&2; exit 1 ;;
+  esac
 }
 
 runs_show() {
@@ -213,7 +241,8 @@ case "$cmd" in
       create) automations_create ;;
       list) automations_list ;;
       show) automations_show "$@" ;;
-      edit) automations_edit ;;
+      add) automations_add "$@" ;;
+      edit) automations_edit "$@" ;;
       pause) cmd_schedule disable ;;
       resume) cmd_schedule enable ;;
       delete) automations_delete "$@" ;;
@@ -229,5 +258,6 @@ case "$cmd" in
       *) usage; exit 1 ;;
     esac
     ;;
+  capabilities) capabilities "$@" ;;
   *) usage; exit 1 ;;
 esac

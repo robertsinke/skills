@@ -1,77 +1,51 @@
-# heartbeat CLI reference
+# Heartbeat CLI
 
-Full command list. For when to use which, and the safety model, see SKILL.md.
-
-## Primitives
-
-These are independent, testable steps, each backed by its own script in
-scripts/, so nothing is duplicated between the CLI and what actually runs.
+## Setup primitives
 
 ```sh
-heartbeat init                 # scaffold automations/ in the current project
-                                #   human files: CONTEXT.md, HEARTBEAT.md, RUNS.md
-                                #   runtime: _heartbeat/.heartbeat.db, runner, reporter,
-                                #   validator
-                                #   templates: automations/.ok/templates/heartbeat.md when
-                                #   the repository uses OpenKnowledge; otherwise
-                                #   automations/.templates/heartbeat.md
-                                #   OpenKnowledge: also creates .ok/frontmatter.yml
-                                #   upgrades: migrates legacy automations/heartbeat/
-                                #   side effects: files only. no cron, no registry, no AGENTS.md edit.
-
-heartbeat register             # add the current project to ~/.agents/heartbeat/registry.txt
-                                #   and append an "## Automation" pointer to its AGENTS.md
-                                #   (skipped if already present)
-                                #   side effects: registry.txt, AGENTS.md. no files under
-                                #   automations/, no cron.
-
-heartbeat unregister           # remove the current project from the registry
-                                #   side effects: registry.txt only.
-
-heartbeat schedule enable      # add the cron entry for this project (every 30 minutes)
-heartbeat schedule disable     # comment out the cron entry for this project (kept, not
-                                #   deleted, so schedule enable restores the same line)
-                                #   side effects: crontab only.
+heartbeat init                 # files only; migrates legacy HEARTBEAT.md
+heartbeat register             # registry + AGENTS.md pointer
+heartbeat unregister           # registry only
+heartbeat schedule enable      # install/refresh five-minute dispatcher cron
+heartbeat schedule disable     # comment out dispatcher cron
 ```
 
-## automations (composed wrappers)
+`heartbeat automations create` composes init, register, and schedule enable.
+
+## Automations
 
 ```sh
-heartbeat automations create   # init + register + schedule enable, in that order.
-                                #   prints a heading per step so all three side effects
-                                #   are visible, not hidden behind one opaque command.
-
-heartbeat automations list     # every registered project + its last run status
-
+heartbeat automations add <name>
+heartbeat automations edit <name>
+heartbeat automations list
 heartbeat automations show [--project <path>]
-                                # one project: registered, schedule state, lock state,
-                                #   HEARTBEAT.md validation result, the checklist itself,
-                                #   and the last run row
-
-heartbeat automations edit     # open $EDITOR on the HEARTBEAT.md for this project, then
-                                #   validate it and warn (not block) if it fails
-
-heartbeat automations pause    # alias for: heartbeat schedule disable
-heartbeat automations resume   # alias for: heartbeat schedule enable
-
+heartbeat automations pause
+heartbeat automations resume
 heartbeat automations delete [--purge] [--project <path>]
-                                # schedule disable + unregister.
-                                #   default: keeps HEARTBEAT.md, .heartbeat.db, RUNS.md on disk.
-                                #   --purge: also deletes heartbeat-owned files and runtime.
 ```
 
-This is full CRUD on automations: create (init + register + schedule enable,
-or the composed create), read (list / show), update (edit, schedule / pause /
-resume), delete (delete). Deletion never removes history by default; use
---purge only when the user explicitly wants that.
+`add` stamps `automations/<name>.md` from the local automation template.
+`show` refreshes and prints `DASHBOARD.md`. Default deletion keeps task files
+and history; `--purge` removes heartbeat runtime and generated views, but keeps
+user-authored automation files.
 
-## runs
+## Local agent options
 
 ```sh
-heartbeat runs list [--project <path>]   # recent runs as a markdown table
-heartbeat runs show <id>                 # full row for one run
-heartbeat runs annotate <id> "<note>"    # the only sanctioned way to edit run history
+heartbeat capabilities refresh
+heartbeat capabilities show
 ```
 
-Prefer heartbeat runs list, or reading automations/RUNS.md, over querying
-automations/_heartbeat/.heartbeat.db directly.
+Refresh deterministically scans installed agent CLIs, writes ignored
+`_heartbeat/capabilities.json`, and regenerates ignored `AGENT-OPTIONS.md`.
+
+## Runs
+
+```sh
+heartbeat runs list [--project <path>]
+heartbeat runs show <id>
+heartbeat runs annotate <id> "<note>"
+```
+
+Run history is task-qualified. Prefer these commands or generated `RUNS.md`
+over querying `_heartbeat/.heartbeat.db` directly.
