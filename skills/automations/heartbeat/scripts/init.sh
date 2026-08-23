@@ -15,7 +15,7 @@ RUNTIME_DIR="$AUTOMATIONS_DIR/_heartbeat"
 LEGACY_DIR="$AUTOMATIONS_DIR/heartbeat"
 
 if [ -d "$LEGACY_DIR" ]; then
-  "$SKILL_DIR/scripts/migrate-layout.sh" "$PROJECT_DIR"
+  bash "$SKILL_DIR/scripts/migrate-layout.sh" "$PROJECT_DIR"
 fi
 
 OPENKNOWLEDGE_TEMPLATES="$(

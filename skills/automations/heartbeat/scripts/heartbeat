@@ -42,13 +42,13 @@ EOF
 
 # ---- primitives: each backed by its own canonical script ----
 
-cmd_init() { "$SKILL_DIR/scripts/init.sh"; }
-cmd_register() { "$SKILL_DIR/scripts/register.sh"; }
-cmd_unregister() { "$SKILL_DIR/scripts/unregister.sh" "$(pwd)"; }
+cmd_init() { bash "$SKILL_DIR/scripts/init.sh"; }
+cmd_register() { bash "$SKILL_DIR/scripts/register.sh"; }
+cmd_unregister() { bash "$SKILL_DIR/scripts/unregister.sh" "$(pwd)"; }
 cmd_schedule() {
   local mode="${1:-}"
   case "$mode" in
-    enable|disable) "$SKILL_DIR/scripts/schedule.sh" "$mode" ;;
+    enable|disable) bash "$SKILL_DIR/scripts/schedule.sh" "$mode" ;;
     *) echo "usage: heartbeat schedule <enable|disable>" >&2; exit 1 ;;
   esac
 }
@@ -172,8 +172,8 @@ automations_delete() {
     echo "No automations/_heartbeat/ at $project" >&2
     exit 1
   fi
-  ( cd "$project" && "$SKILL_DIR/scripts/schedule.sh" disable ) || true
-  "$SKILL_DIR/scripts/unregister.sh" "$project"
+  ( cd "$project" && bash "$SKILL_DIR/scripts/schedule.sh" disable ) || true
+  bash "$SKILL_DIR/scripts/unregister.sh" "$project"
   if [ "$purge" -eq 1 ]; then
     rm -rf "$runtime"
     rm -f "$automations/DASHBOARD.md" "$automations/AGENT-OPTIONS.md" "$automations/RUNS.md" "$automations/.ok/templates/automation.md" "$automations/.templates/automation.md"
