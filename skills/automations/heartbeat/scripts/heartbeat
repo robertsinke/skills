@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
-# heartbeat - CLI for managing filesystem-only local automations.
+# heartbeat - CLI for local, scheduled project automations.
+#
+# Composition model: `init`, `register`, and `schedule enable/disable` are
+# independent, testable primitives, each backed by its own canonical script.
+# `automations create`/`delete` are thin convenience wrappers that compose
+# them for the common case. See reference/CLI.md for the full command list.
 set -uo pipefail
 
 SKILL_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -10,23 +15,46 @@ touch "$REGISTRY"
 usage() {
   cat <<'EOF'
 Usage:
-  heartbeat automations create
-  heartbeat automations list
-  heartbeat automations show [--project <path>]
-  heartbeat automations edit
-  heartbeat automations pause
-  heartbeat automations resume
-  heartbeat automations delete [--purge] [--project <path>]
-  heartbeat runs list [--project <path>]
+  heartbeat init                                      # scaffold automations/heartbeat/ (files only)
+  heartbeat register                                   # add this project to the registry + AGENTS.md pointer
+  heartbeat unregister                                 # remove this project from the registry
+  heartbeat schedule enable                             # add this project's cron entry
+  heartbeat schedule disable                            # remove/comment this project's cron entry
+
+  heartbeat automations create                          # init + register + schedule enable
+  heartbeat automations list                            # every registered project + its last run
+  heartbeat automations show [--project <path>]          # one project: registration, cron state, checklist, last run
+  heartbeat automations edit                             # open $EDITOR on this project's HEARTBEAT.md
+  heartbeat automations pause / resume                   # aliases for: schedule disable / schedule enable
+  heartbeat automations delete [--purge] [--project <path>]  # schedule disable + unregister (add --purge to also delete files)
+
+  heartbeat runs list [--project <path>]                 # recent runs as a markdown table
   heartbeat runs show <id>
   heartbeat runs annotate <id> "<note>"
+
+Full reference: reference/CLI.md (next to this skill's SKILL.md)
 EOF
 }
 
+# ---- primitives: each backed by its own canonical script ----
+
+cmd_init() { "$SKILL_DIR/scripts/init.sh"; }
+cmd_register() { "$SKILL_DIR/scripts/register.sh"; }
+cmd_unregister() { "$SKILL_DIR/scripts/unregister.sh" "$(pwd)"; }
+cmd_schedule() {
+  local mode="${1:-}"
+  case "$mode" in
+    enable|disable) "$SKILL_DIR/scripts/schedule.sh" "$mode" ;;
+    *) echo "usage: heartbeat schedule <enable|disable>" >&2; exit 1 ;;
+  esac
+}
+
+# ---- automations: composed wrappers over the primitives above ----
+
 automations_create() {
-  # init.sh is the canonical implementation (scaffold, cron, AGENTS.md, registry).
-  # This CLI is a thin wrapper so there is exactly one place that logic lives.
-  "$SKILL_DIR/scripts/init.sh"
+  echo "== init =="; cmd_init
+  echo "== register =="; cmd_register
+  echo "== schedule enable =="; cmd_schedule enable
 }
 
 automations_list() {
@@ -63,17 +91,27 @@ automations_show() {
   if grep -qxF "$project" "$REGISTRY" 2>/dev/null; then
     echo "Registered: yes"
   else
-    echo "Registered: no (not in $REGISTRY)"
+    echo "Registered: no (not in $REGISTRY - run: heartbeat register)"
   fi
   if crontab -l 2>/dev/null | grep -qF "$target"; then
     if crontab -l 2>/dev/null | grep -F "$target" | grep -q "^#"; then
-      echo "Cron: paused"
+      echo "Schedule: disabled"
     else
-      echo "Cron: active"
+      echo "Schedule: enabled"
     fi
   else
-    echo "Cron: not scheduled"
+    echo "Schedule: not scheduled (run: heartbeat schedule enable)"
   fi
+  if [ -f "$target/.heartbeat.lock/pid" ]; then
+    local lock_pid; lock_pid=$(cat "$target/.heartbeat.lock/pid" 2>/dev/null)
+    if kill -0 "$lock_pid" 2>/dev/null; then
+      echo "Lock: held (pid $lock_pid - a run is in progress)"
+    else
+      echo "Lock: stale (pid $lock_pid no longer running - next run will reclaim it)"
+    fi
+  fi
+  echo "---- HEARTBEAT.md validation ----"
+  python3 "$target/validate-heartbeat.py" "$target/HEARTBEAT.md" 2>&1 || true
   echo "---- HEARTBEAT.md ----"
   cat "$target/HEARTBEAT.md" 2>/dev/null || echo "(missing)"
   echo "---- last run ----"
@@ -93,21 +131,9 @@ automations_edit() {
     exit 1
   fi
   "${EDITOR:-vi}" "$target"
-}
-
-toggle_cron() {
-  local mode="$1"
-  local target="$(pwd)/automations/heartbeat"
-  local tmp; tmp=$(mktemp)
-  crontab -l 2>/dev/null > "$tmp" || true
-  if [ "$mode" = pause ]; then
-    sed -i.bak "\#$target# s/^\([^#]\)/#\1/" "$tmp"
-  else
-    sed -i.bak "\#$target# s/^#//" "$tmp"
-  fi
-  crontab "$tmp"
-  rm -f "$tmp" "$tmp.bak"
-  echo "heartbeat ${mode}d for $target"
+  python3 "./automations/heartbeat/validate-heartbeat.py" "$target" || {
+    echo "warning: HEARTBEAT.md does not pass validation - runs will be logged as status=invalid and skipped until fixed" >&2
+  }
 }
 
 automations_delete() {
@@ -125,18 +151,8 @@ automations_delete() {
     echo "No automations/heartbeat/ at $project" >&2
     exit 1
   fi
-
-  # Remove the cron entry.
-  local tmp; tmp=$(mktemp)
-  crontab -l 2>/dev/null | grep -vF "$target" > "$tmp" || true
-  crontab "$tmp"
-  rm -f "$tmp"
-
-  # Unregister the project.
-  local tmp2; tmp2=$(mktemp)
-  grep -vxF "$project" "$REGISTRY" > "$tmp2" 2>/dev/null || true
-  mv "$tmp2" "$REGISTRY"
-
+  ( cd "$project" && "$SKILL_DIR/scripts/schedule.sh" disable ) || true
+  "$SKILL_DIR/scripts/unregister.sh" "$project"
   if [ "$purge" -eq 1 ]; then
     rm -rf "$target"
     echo "Deleted cron entry, registry entry, and $target (history is gone)."
@@ -181,23 +197,28 @@ runs_annotate() {
 }
 
 cmd="${1:-}"
-sub="${2:-}"
-if [ $# -ge 2 ]; then shift 2; else shift $#; fi
+shift || true
 
 case "$cmd" in
+  init) cmd_init ;;
+  register) cmd_register ;;
+  unregister) cmd_unregister ;;
+  schedule) cmd_schedule "$@" ;;
   automations)
+    sub="${1:-}"; shift || true
     case "$sub" in
       create) automations_create ;;
       list) automations_list ;;
       show) automations_show "$@" ;;
       edit) automations_edit ;;
-      pause) toggle_cron pause ;;
-      resume) toggle_cron resume ;;
+      pause) cmd_schedule disable ;;
+      resume) cmd_schedule enable ;;
       delete) automations_delete "$@" ;;
       *) usage; exit 1 ;;
     esac
     ;;
   runs)
+    sub="${1:-}"; shift || true
     case "$sub" in
       list) runs_list "$@" ;;
       show) runs_show "$@" ;;
