@@ -93,27 +93,73 @@ assert_contains "frontmatter 'enabled' must be true or false" "$TEST_ROOT/invali
 OPENKNOWLEDGE_PROJECT="$TEST_ROOT/openknowledge-project"
 mkdir -p "$OPENKNOWLEDGE_PROJECT/records/.ok/templates"
 (cd "$OPENKNOWLEDGE_PROJECT" && bash "$INIT_SCRIPT" >/dev/null)
-OPENKNOWLEDGE_TARGET="$OPENKNOWLEDGE_PROJECT/automations/heartbeat"
-assert_dir "$OPENKNOWLEDGE_TARGET/.ok/templates"
-assert_file "$OPENKNOWLEDGE_TARGET/.ok/templates/heartbeat.md"
-assert_file "$OPENKNOWLEDGE_TARGET/.ok/templates/runs.md"
-assert_file "$OPENKNOWLEDGE_TARGET/HEARTBEAT.md"
-assert_file "$OPENKNOWLEDGE_TARGET/RUNS.md"
-python3 "$OPENKNOWLEDGE_TARGET/validate-heartbeat.py" "$OPENKNOWLEDGE_TARGET/HEARTBEAT.md" >/dev/null
-assert_contains "title: Heartbeat" "$OPENKNOWLEDGE_TARGET/HEARTBEAT.md"
-assert_contains "title: Heartbeat runs" "$OPENKNOWLEDGE_TARGET/RUNS.md"
-(cd "$OPENKNOWLEDGE_TARGET" && ./heartbeat-report.sh)
-assert_contains "title: Heartbeat runs" "$OPENKNOWLEDGE_TARGET/RUNS.md"
-assert_contains "# Heartbeat runs" "$OPENKNOWLEDGE_TARGET/RUNS.md"
+OPENKNOWLEDGE_AUTOMATIONS="$OPENKNOWLEDGE_PROJECT/automations"
+OPENKNOWLEDGE_RUNTIME="$OPENKNOWLEDGE_AUTOMATIONS/_heartbeat"
+assert_dir "$OPENKNOWLEDGE_AUTOMATIONS/.ok/templates"
+assert_file "$OPENKNOWLEDGE_AUTOMATIONS/.ok/frontmatter.yml"
+assert_file "$OPENKNOWLEDGE_AUTOMATIONS/.ok/templates/heartbeat.md"
+[ ! -e "$OPENKNOWLEDGE_AUTOMATIONS/.ok/templates/runs.md" ] || fail "generated RUNS.md is exposed as a stampable template"
+assert_file "$OPENKNOWLEDGE_AUTOMATIONS/CONTEXT.md"
+assert_file "$OPENKNOWLEDGE_AUTOMATIONS/HEARTBEAT.md"
+assert_file "$OPENKNOWLEDGE_AUTOMATIONS/RUNS.md"
+assert_file "$OPENKNOWLEDGE_RUNTIME/.heartbeat.db"
+python3 "$OPENKNOWLEDGE_RUNTIME/validate-heartbeat.py" "$OPENKNOWLEDGE_AUTOMATIONS/HEARTBEAT.md" >/dev/null
+assert_contains "title: Heartbeat" "$OPENKNOWLEDGE_AUTOMATIONS/HEARTBEAT.md"
+assert_contains "title: Heartbeat runs" "$OPENKNOWLEDGE_AUTOMATIONS/RUNS.md"
+(cd "$OPENKNOWLEDGE_RUNTIME" && ./heartbeat-report.sh)
+assert_contains "title: Heartbeat runs" "$OPENKNOWLEDGE_AUTOMATIONS/RUNS.md"
+assert_contains "# Heartbeat runs" "$OPENKNOWLEDGE_AUTOMATIONS/RUNS.md"
 
 PLAIN_PROJECT="$TEST_ROOT/plain-project"
 mkdir -p "$PLAIN_PROJECT"
 (cd "$PLAIN_PROJECT" && bash "$INIT_SCRIPT" >/dev/null)
-PLAIN_TARGET="$PLAIN_PROJECT/automations/heartbeat"
-assert_dir "$PLAIN_TARGET/.templates"
-assert_file "$PLAIN_TARGET/.templates/heartbeat.md"
-assert_file "$PLAIN_TARGET/.templates/runs.md"
-[ ! -d "$PLAIN_TARGET/.ok/templates" ] || fail "plain project unexpectedly used .ok/templates"
-python3 "$PLAIN_TARGET/validate-heartbeat.py" "$PLAIN_TARGET/HEARTBEAT.md" >/dev/null
+PLAIN_AUTOMATIONS="$PLAIN_PROJECT/automations"
+PLAIN_RUNTIME="$PLAIN_AUTOMATIONS/_heartbeat"
+assert_dir "$PLAIN_AUTOMATIONS/.templates"
+assert_file "$PLAIN_AUTOMATIONS/.templates/heartbeat.md"
+[ ! -e "$PLAIN_AUTOMATIONS/.templates/runs.md" ] || fail "generated RUNS.md is exposed as a stampable template"
+[ ! -d "$PLAIN_AUTOMATIONS/.ok/templates" ] || fail "plain project unexpectedly used .ok/templates"
+python3 "$PLAIN_RUNTIME/validate-heartbeat.py" "$PLAIN_AUTOMATIONS/HEARTBEAT.md" >/dev/null
 
-printf 'PASS: heartbeat validator and initialization\n'
+LEGACY_PROJECT="$TEST_ROOT/legacy-project"
+LEGACY_DIR="$LEGACY_PROJECT/automations/heartbeat"
+mkdir -p "$LEGACY_DIR/.ok/templates"
+cp "$SKILL_DIR/templates/HEARTBEAT.md.template" "$LEGACY_DIR/HEARTBEAT.md"
+cp "$SKILL_DIR/templates/RUNS.md.template" "$LEGACY_DIR/RUNS.md"
+cp "$SKILL_DIR/templates/HEARTBEAT.md.template" "$LEGACY_DIR/.ok/templates/heartbeat.md"
+cp "$SKILL_DIR/templates/RUNS.md.template" "$LEGACY_DIR/.ok/templates/runs.md"
+sqlite3 "$LEGACY_DIR/.heartbeat.db" < "$SKILL_DIR/scripts/schema.sql"
+sqlite3 "$LEGACY_DIR/.heartbeat.db" "INSERT INTO runs (ts, date, time, status, output) VALUES ('2026-01-01T00:00:00Z','2026-01-01','00:00:00','ok','preserved');"
+printf '%s\n' '{"agent":"codex"}' > "$LEGACY_DIR/.heartbeat.json"
+(cd "$LEGACY_PROJECT" && bash "$INIT_SCRIPT" >/dev/null)
+assert_file "$LEGACY_PROJECT/automations/HEARTBEAT.md"
+assert_file "$LEGACY_PROJECT/automations/RUNS.md"
+assert_file "$LEGACY_PROJECT/automations/_heartbeat/.heartbeat.db"
+assert_file "$LEGACY_PROJECT/automations/_heartbeat/.heartbeat.json"
+assert_file "$LEGACY_PROJECT/automations/_heartbeat/legacy-runs-template.md"
+[ "$(sqlite3 "$LEGACY_PROJECT/automations/_heartbeat/.heartbeat.db" 'SELECT output FROM runs WHERE id=1;')" = preserved ] || fail "legacy run history was not preserved"
+[ ! -d "$LEGACY_DIR" ] || fail "empty legacy heartbeat directory remains after migration"
+
+printf '%s\n' \
+  '# Project' \
+  '' \
+  '## Automation' \
+  'Scheduled checks live under automations/. Current: automations/heartbeat/ (checklist: HEARTBEAT.md, history: RUNS.md).' > "$LEGACY_PROJECT/AGENTS.md"
+FAKE_HOME="$TEST_ROOT/home"
+FAKE_BIN="$TEST_ROOT/bin"
+FAKE_CRONTAB="$TEST_ROOT/crontab.txt"
+mkdir -p "$FAKE_HOME" "$FAKE_BIN"
+printf '%s\n' \
+  '#!/usr/bin/env bash' \
+  'if [ "${1:-}" = -l ]; then [ ! -f "$FAKE_CRONTAB" ] || cat "$FAKE_CRONTAB"; exit 0; fi' \
+  'cp "$1" "$FAKE_CRONTAB"' > "$FAKE_BIN/crontab"
+chmod +x "$FAKE_BIN/crontab"
+printf '*/30 * * * * cd %s/automations/heartbeat && ./heartbeat-run.sh && ./heartbeat-report.sh\n' "$LEGACY_PROJECT" > "$FAKE_CRONTAB"
+(cd "$LEGACY_PROJECT" && HOME="$FAKE_HOME" bash "$SKILL_DIR/scripts/register.sh" >/dev/null)
+assert_contains 'Scheduled checks live in automations/ (checklist: HEARTBEAT.md, history: RUNS.md; runtime: _heartbeat/).' "$LEGACY_PROJECT/AGENTS.md"
+if grep -qF 'Current: automations/heartbeat/' "$LEGACY_PROJECT/AGENTS.md"; then fail "legacy AGENTS.md pointer remains"; fi
+(cd "$LEGACY_PROJECT" && PATH="$FAKE_BIN:$PATH" FAKE_CRONTAB="$FAKE_CRONTAB" bash "$SKILL_DIR/scripts/schedule.sh" enable >/dev/null)
+assert_contains "$LEGACY_PROJECT/automations/_heartbeat" "$FAKE_CRONTAB"
+if grep -qF "$LEGACY_PROJECT/automations/heartbeat" "$FAKE_CRONTAB"; then fail "legacy cron path remains"; fi
+
+printf 'PASS: heartbeat split creation, migration, registration, and scheduling\n'

@@ -8,20 +8,22 @@ These are independent, testable steps, each backed by its own script in
 scripts/, so nothing is duplicated between the CLI and what actually runs.
 
 ```sh
-heartbeat init                 # scaffold automations/heartbeat/ in the current project
-                                #   creates: HEARTBEAT.md and RUNS.md (from templates,
-                                #   if missing), .heartbeat.db, heartbeat-run.sh,
-                                #   heartbeat-report.sh, validate-heartbeat.py
-                                #   templates: automations/heartbeat/.ok/templates/ when
-                                #   the repository already uses OpenKnowledge; otherwise
-                                #   automations/heartbeat/.templates/
+heartbeat init                 # scaffold automations/ in the current project
+                                #   human files: CONTEXT.md, HEARTBEAT.md, RUNS.md
+                                #   runtime: _heartbeat/.heartbeat.db, runner, reporter,
+                                #   validator
+                                #   templates: automations/.ok/templates/heartbeat.md when
+                                #   the repository uses OpenKnowledge; otherwise
+                                #   automations/.templates/heartbeat.md
+                                #   OpenKnowledge: also creates .ok/frontmatter.yml
+                                #   upgrades: migrates legacy automations/heartbeat/
                                 #   side effects: files only. no cron, no registry, no AGENTS.md edit.
 
 heartbeat register             # add the current project to ~/.agents/heartbeat/registry.txt
                                 #   and append an "## Automation" pointer to its AGENTS.md
                                 #   (skipped if already present)
                                 #   side effects: registry.txt, AGENTS.md. no files under
-                                #   automations/heartbeat/, no cron.
+                                #   automations/, no cron.
 
 heartbeat unregister           # remove the current project from the registry
                                 #   side effects: registry.txt only.
@@ -55,7 +57,7 @@ heartbeat automations resume   # alias for: heartbeat schedule enable
 heartbeat automations delete [--purge] [--project <path>]
                                 # schedule disable + unregister.
                                 #   default: keeps HEARTBEAT.md, .heartbeat.db, RUNS.md on disk.
-                                #   --purge: also deletes automations/heartbeat/ entirely.
+                                #   --purge: also deletes heartbeat-owned files and runtime.
 ```
 
 This is full CRUD on automations: create (init + register + schedule enable,
@@ -71,5 +73,5 @@ heartbeat runs show <id>                 # full row for one run
 heartbeat runs annotate <id> "<note>"    # the only sanctioned way to edit run history
 ```
 
-Prefer heartbeat runs list, or reading automations/heartbeat/RUNS.md, over
-querying .heartbeat.db directly.
+Prefer heartbeat runs list, or reading automations/RUNS.md, over querying
+automations/_heartbeat/.heartbeat.db directly.
