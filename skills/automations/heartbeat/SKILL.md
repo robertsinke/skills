@@ -257,6 +257,12 @@ in Codex's config.toml.
 - **Malformed HEARTBEAT.md**: caught by validate-heartbeat.py before any
   agent is invoked. Logged as status=invalid with the specific parse
   error(s); the checklist is never sent to the agent in this state.
+- **Sandbox-incompatible commands (Claude and Codex presets)**: a task that
+  needs docker, watchman, or another tool the OS-level sandbox blocks (see
+  Safety invariants) surfaces as a normal agent failure - typically
+  status=error or an alert with the sandbox violation in the output, not a
+  new status value. Fix it in the project's own agent config (see
+  Configuration schema), not by weakening heartbeat-run.sh.
 - **Missed cron runs**: if the machine is asleep or off at the scheduled
   time, that run simply does not happen - there is no catch-up/backfill
   mechanism. This is an accepted limitation, not a bug: a catch-up run
