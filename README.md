@@ -11,7 +11,7 @@ git clone https://github.com/robertsinke/skills.git ~/.local/share/robert-skills
 ```
 
 `git pull` in that clone keeps every installed skill up to date - each one is a symlink
-into this repo, not a copy. The install script also symlinks the `heartbeat` CLI onto
+into this repo, not a copy. The install script also symlinks each skill's CLI (`heartbeat`, `talk-to-me`) onto
 PATH via `~/.agents/bin` (add that to your PATH if the script tells you to).
 
 ## Skills
@@ -50,38 +50,28 @@ heartbeat runs annotate <id> "<note>"                  # sanctioned way to edit 
 
 Runs are unattended, so `heartbeat-run.sh` enforces a fixed safety prefix (no destructive commands, no unscoped git commits, no reading secrets) that can't be overridden from HEARTBEAT.md, and uses a non-interactive permission mode per agent so runs never stall waiting for approval. See `skills/automations/heartbeat/SKILL.md` for full details.
 
+### talk-to-me (`skills/voice/talk-to-me`)
 
+Local, open-source voice I/O for an agent session - speak to the user and listen
+for their spoken reply. Text-to-speech via [Piper](https://github.com/OHF-Voice/piper1-gpl)
+(GPL-3.0), speech-to-text via [Vosk](https://alphacephei.com/vosk) (Apache-2.0).
+No account, no API key, no cloud call, no browser dependency - both engines run
+fully offline on the user's machine, installed into an isolated venv that never
+touches system/global Python.
 
+One-time setup (creates the venv, installs the 4 pip packages it needs, downloads
+a small default voice/model, ~100MB total):
 
+```sh
+talk-to-me setup
+talk-to-me status   # verify
+```
 
+Then, in a session:
 
+```sh
+talk-to-me say "Here's what I found. Want me to go ahead?"
+talk-to-me listen   # records the mic, auto-stops on silence, prints the transcript
+```
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+See `skills/voice/talk-to-me/SKILL.md` for voice/model customization and usage notes.
