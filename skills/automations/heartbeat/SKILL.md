@@ -29,14 +29,23 @@ at ~/.agents/heartbeat/registry.txt so it shows up in `heartbeat automations lis
 ## CLI commands
 
 ```
-heartbeat automations create              # scaffold + register this project
-heartbeat automations list                # every registered project + its last run
-heartbeat automations edit                # open $EDITOR on this project's HEARTBEAT.md
-heartbeat automations pause / resume       # toggle this project's cron entry
-heartbeat runs list [--project <path>]     # recent runs as a markdown table
-heartbeat runs show <id>                   # full row for one run
-heartbeat runs annotate <id> "<note>"      # the only sanctioned way to edit run history
+heartbeat automations create                       # scaffold + register this project
+heartbeat automations list                         # every registered project + its last run
+heartbeat automations show [--project <path>]       # one project: registration, cron state, checklist, last run
+heartbeat automations edit                          # open $EDITOR on this project's HEARTBEAT.md
+heartbeat automations pause / resume                 # toggle this project's cron entry
+heartbeat automations delete [--purge] [--project <path>]
+                                                       # unregister + remove cron entry
+                                                       # (default keeps HEARTBEAT.md/.heartbeat.db/RUNS.md on disk;
+                                                       #  --purge also deletes automations/heartbeat/)
+heartbeat runs list [--project <path>]                # recent runs as a markdown table
+heartbeat runs show <id>                              # full row for one run
+heartbeat runs annotate <id> "<note>"                 # the only sanctioned way to edit run history
 ```
+
+This is full CRUD on automations: create (`create`), read (`list`/`show`), update
+(`edit`, `pause`/`resume`), delete (`delete`). Deletion never removes history by
+default - use `--purge` only when the user explicitly wants that.
 
 ## Files this manages, inside `automations/heartbeat/`
 
