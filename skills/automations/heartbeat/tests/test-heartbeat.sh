@@ -103,6 +103,8 @@ assert_file "$OPENKNOWLEDGE_AUTOMATIONS/CONTEXT.md"
 assert_file "$OPENKNOWLEDGE_AUTOMATIONS/HEARTBEAT.md"
 assert_file "$OPENKNOWLEDGE_AUTOMATIONS/RUNS.md"
 assert_file "$OPENKNOWLEDGE_RUNTIME/.heartbeat.db"
+assert_file "$OPENKNOWLEDGE_RUNTIME/.gitignore"
+assert_contains '.heartbeat.db' "$OPENKNOWLEDGE_RUNTIME/.gitignore"
 python3 "$OPENKNOWLEDGE_RUNTIME/validate-heartbeat.py" "$OPENKNOWLEDGE_AUTOMATIONS/HEARTBEAT.md" >/dev/null
 assert_contains "title: Heartbeat" "$OPENKNOWLEDGE_AUTOMATIONS/HEARTBEAT.md"
 assert_contains "title: Heartbeat runs" "$OPENKNOWLEDGE_AUTOMATIONS/RUNS.md"

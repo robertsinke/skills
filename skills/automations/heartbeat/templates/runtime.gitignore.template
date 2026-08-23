@@ -1,0 +1,4 @@
+.heartbeat.db
+.heartbeat.json
+.heartbeat.lock/
+legacy-runs-template.md

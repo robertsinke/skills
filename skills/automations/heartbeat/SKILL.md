@@ -150,6 +150,8 @@ which runs, in order:
 1. **init** - scaffold the human interface in `automations/` (`CONTEXT.md`,
    `HEARTBEAT.md`, and generated `RUNS.md`) and runtime infrastructure in
    `automations/_heartbeat/` (`.heartbeat.db`, runner, reporter, and validator).
+   Runtime scripts are versionable; its `.gitignore` excludes machine-local
+   database, config, lock, and legacy migration state.
    It creates `automations/.ok/frontmatter.yml` plus
    `automations/.ok/templates/heartbeat.md` when the repository already uses
    OpenKnowledge templates anywhere, otherwise

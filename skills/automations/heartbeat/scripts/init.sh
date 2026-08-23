@@ -37,6 +37,7 @@ mkdir -p "$AUTOMATIONS_DIR" "$RUNTIME_DIR" "$TEMPLATE_DIR"
 [ -f "$AUTOMATIONS_DIR/HEARTBEAT.md" ] || cp "$TEMPLATE_DIR/heartbeat.md" "$AUTOMATIONS_DIR/HEARTBEAT.md"
 [ -f "$AUTOMATIONS_DIR/RUNS.md" ] || cp "$SKILL_DIR/templates/RUNS.md.template" "$AUTOMATIONS_DIR/RUNS.md"
 [ -f "$RUNTIME_DIR/.heartbeat.db" ] || sqlite3 "$RUNTIME_DIR/.heartbeat.db" < "$SKILL_DIR/scripts/schema.sql"
+[ -f "$RUNTIME_DIR/.gitignore" ] || cp "$SKILL_DIR/templates/runtime.gitignore.template" "$RUNTIME_DIR/.gitignore"
 
 cp "$SKILL_DIR/scripts/heartbeat-run.sh" "$RUNTIME_DIR/heartbeat-run.sh"
 cp "$SKILL_DIR/scripts/heartbeat-report.sh" "$RUNTIME_DIR/heartbeat-report.sh"
