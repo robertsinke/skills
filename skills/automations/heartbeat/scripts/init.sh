@@ -34,7 +34,10 @@ mkdir -p "$AUTOMATIONS_DIR" "$RUNTIME_DIR" "$TEMPLATE_DIR"
 [ -f "$TEMPLATE_DIR/automation.md" ] || cp "$SKILL_DIR/templates/AUTOMATION.md.template" "$TEMPLATE_DIR/automation.md"
 
 [ -f "$AUTOMATIONS_DIR/CONTEXT.md" ] || cp "$SKILL_DIR/templates/CONTEXT.md.template" "$AUTOMATIONS_DIR/CONTEXT.md"
-[ -f "$RUNTIME_DIR/.gitignore" ] || cp "$SKILL_DIR/templates/runtime.gitignore.template" "$RUNTIME_DIR/.gitignore"
+touch "$RUNTIME_DIR/.gitignore"
+while IFS= read -r ignored; do
+  [ -z "$ignored" ] || grep -qxF "$ignored" "$RUNTIME_DIR/.gitignore" || echo "$ignored" >> "$RUNTIME_DIR/.gitignore"
+done < "$SKILL_DIR/templates/runtime.gitignore.template"
 
 GENERATED_IGNORE="$AUTOMATIONS_DIR/.gitignore"
 touch "$GENERATED_IGNORE"
