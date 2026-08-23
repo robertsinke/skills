@@ -393,7 +393,7 @@ def command_for(task, agent, runtime: Path):
         cmd = ["codex", "exec", "--json"]
         if model != "default": cmd += ["-m", model]
         if effort != "default": cmd += ["-c", f"model_reasoning_effort={effort}"]
-        cmd += ["--sandbox", "read-only"] if permission == "restricted" else ["--approve-for-me", "--sandbox", "workspace-write"]
+        cmd += ["--sandbox", "read-only"] if permission == "restricted" else ["--approve-for-me"]
     elif agent == "cursor":
         selected = model if effort == "default" else f"{model}[effort={effort}]"
         cmd = ["agent", "-p", "--output-format", "json"]
