@@ -18,37 +18,43 @@ PATH via `~/.agents/bin` (add that to your PATH if the script tells you to).
 
 ### heartbeat (`skills/automations/heartbeat`)
 
-Scheduled, filesystem-only local automations for a project - works with whichever
-coding agent CLI (Claude Code, Codex, Cursor) is configured there. No server, no
-external dependencies beyond `sh`, `sqlite3`, `python3`, and `git` (all present by
-default on macOS / most Linux dev machines).
+Scheduled, local automations for a project - works with whichever coding
+agent CLI (Claude Code, Codex, Cursor) is configured there. Not literally
+filesystem-only: uses a local SQLite file for run history, cron for
+scheduling, and a small global registry file for cross-project discovery.
+No server, no cloud service, no account - no external dependencies beyond
+sh, sqlite3, python3, and git (all present by default on macOS / most Linux
+dev machines).
 
-Set up in a project:
+Set up in a project (init + register + schedule enable, composed):
 
 ```sh
 cd /path/to/any/project
 heartbeat automations create
 ```
 
-This creates `automations/heartbeat/` in that project (`HEARTBEAT.md` checklist,
-`.heartbeat.db` history, auto-generated `RUNS.md`), registers a cron entry, points
-the project's `AGENTS.md` at it, and registers it in `~/.agents/heartbeat/registry.txt`.
+This creates automations/heartbeat/ in that project (HEARTBEAT.md checklist,
+validated against a small schema before every run, plus .heartbeat.db
+history and auto-generated RUNS.md), registers a cron entry, points the
+project AGENTS.md at it, and registers it in
+~/.agents/heartbeat/registry.txt. Each of those three steps (init, register,
+schedule enable) is also independently callable.
 
-CLI commands:
+CLI commands (full reference: `skills/automations/heartbeat/reference/CLI.md`):
 
 ```sh
-heartbeat automations create                        # scaffold + register this project
-heartbeat automations list                          # every registered project + its last run
-heartbeat automations show [--project <path>]        # one project: registration, cron state, checklist, last run
-heartbeat automations edit                           # open $EDITOR on this project's HEARTBEAT.md
-heartbeat automations pause / resume                  # toggle this project's cron entry
-heartbeat automations delete [--purge] [--project <path>]  # unregister + stop cron (add --purge to also delete files)
-heartbeat runs list [--project <path>]                 # recent runs as a markdown table
-heartbeat runs show <id>                               # full row for one run
-heartbeat runs annotate <id> "<note>"                  # sanctioned way to edit run history
+heartbeat init / register / unregister / schedule <enable|disable>   # primitives
+heartbeat automations create / list / show / edit / pause / resume / delete
+heartbeat runs list / show <id> / annotate <id> "note"
 ```
 
-Runs are unattended, so `heartbeat-run.sh` enforces a fixed safety prefix (no destructive commands, no unscoped git commits, no reading secrets) that can't be overridden from HEARTBEAT.md, and uses a non-interactive permission mode per agent so runs never stall waiting for approval. See `skills/automations/heartbeat/SKILL.md` for full details.
+Runs are unattended, so heartbeat-run.sh enforces a fixed safety prefix (no
+destructive commands, no unscoped git commits, no reading secrets) that
+cannot be overridden from HEARTBEAT.md, takes a lock so a slow run is never
+duplicated by the next cron tick, and runs the agent CLI under a portable
+timeout (no external timeout binary assumed) so a hung agent cannot wedge
+the schedule forever. See `skills/automations/heartbeat/SKILL.md` for the full safety model and failure
+handling.
 
 ### talk-to-me (`skills/voice/talk-to-me`)
 
