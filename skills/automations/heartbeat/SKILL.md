@@ -58,7 +58,30 @@ default - use `--purge` only when the user explicitly wants that.
 - `.heartbeat.db` - SQLite backing store. Only `heartbeat-run.sh` and
   `heartbeat runs annotate` write to it - never hand-edit.
 - `.heartbeat.json` - optional overrides:
-  `{"agent": "claude|codex|cursor", "model": "...", "effort": "..."}`.
+  `{"agent": "claude|codex|cursor", "model": "...", "effort": "...", "permission_mode": "auto|restricted"}`.
+
+## Permission mode and unattended safety
+
+A heartbeat run is unattended (fired by cron, nobody is present to click "allow"),
+so `heartbeat-run.sh` runs each agent CLI with a non-interactive permission mode
+instead of the agent's normal approval prompts, which would otherwise stall the
+run forever:
+
+- `permission_mode: "auto"` (default) - the run proceeds without stalling on
+  approval prompts. Safety comes from a **fixed safety prefix** that
+  `heartbeat-run.sh` prepends to every prompt, before the HEARTBEAT.md content -
+  it is baked into the runner script, not the checklist file, so it **cannot be
+  overridden by editing HEARTBEAT.md**. It blocks destructive commands, git
+  commits/pushes outside what the checklist explicitly asks for, reading or
+  transmitting secrets, and installing software.
+- `permission_mode: "restricted"` - best-effort read-only/no-side-effects mode
+  per agent (exact behavior varies by CLI and version - verify locally before
+  relying on it for anything sensitive).
+
+Do not remove or weaken the safety prefix in `heartbeat-run.sh` when editing a
+project's automation. If a checklist genuinely needs to make a change (not just
+report), say so explicitly in HEARTBEAT.md and keep the change scoped to exactly
+that.
 
 ## Reviewing history
 
