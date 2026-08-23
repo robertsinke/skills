@@ -12,12 +12,10 @@ CLI is configured in the target project. What it does not use: a server, a
 cloud service or database, or an account.
 
 Not confined to any one agent. Built-in presets exist for Claude Code, Codex,
-Cursor, and OpenCode - anything else (pi, Kilo, Cline, a future tool, an
-internal one) plugs in via agent_command in .heartbeat.json, as long as it has
-some scriptable, non-interactive, prompt-in/text-out mode. See Configuration
-schema below. Note: some agents (e.g. Cline, Kilo Code as of writing) are
-primarily IDE extensions without an official standalone non-interactive CLI -
-those cannot be wired into an unattended cron run until/unless they ship one.
+Cursor, and OpenCode - anything else (pi, a future tool, an internal one)
+plugs in via agent_command in .heartbeat.json, as long as it has some
+scriptable, non-interactive, prompt-in/text-out mode. See Configuration
+schema below.
 
 This skill ships a CLI (heartbeat) for every mechanical/deterministic step.
 Use the CLI for anything it covers; only hand-edit HEARTBEAT.md, or read
