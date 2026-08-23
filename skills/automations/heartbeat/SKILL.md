@@ -71,15 +71,37 @@ expected to follow but that nothing here technically forces.
   agent can execute: it only works if the agent reads and follows it. If an
   agent ignores, misreads, or is prompt-injected around the prefix, nothing
   here stops it from running a destructive command.
-- **permission_mode "auto" (default) removes the agent CLI's own approval
-  gate entirely** (Claude bypassPermissions, Codex --full-auto, etc.) so a
-  cron-triggered run does not stall waiting for a human who is not there.
-  This means in auto mode there is no technical barrier between the agent
-  and any action at all, beyond the model choosing to follow the safety
-  prefix above. Real enforcement - OS-level sandboxing, restricted file/
-  process permissions, or a runner that inspects and refuses specific
-  commands - is not implemented by this skill today. Treat the safety
-  prefix as reducing risk, not eliminating it.
+- **permission_mode "auto" (default) removes each agent CLI's own approval
+  prompts** so a cron-triggered run does not stall waiting for a human who
+  is not there - but "no prompts" is not the same as "no enforcement", and
+  it differs by preset:
+  - **Codex**: --full-auto pairs --ask-for-approval never with
+    --sandbox workspace-write, and the sandbox half is enforced by the OS
+    (Seatbelt on macOS, Landlock+seccomp on Linux) independently of the
+    approval policy - it can write inside the project workspace and cannot
+    reach the network or the filesystem outside it, regardless of what the
+    model decides to run.
+  - **Claude**: heartbeat-run.sh pairs --permission-mode bypassPermissions
+    with --settings '{"sandbox":{"enabled":true,"allowUnsandboxedCommands":false}}'.
+    Claude Code's built-in sandbox is off by default; heartbeat turns it on
+    for its own runs. It OS-enforces (Seatbelt / bubblewrap+socat) filesystem
+    and network limits on the Bash tool and its child processes only - it
+    does not constrain Claude's native Read/Edit/Write tools directly, and on
+    Linux/WSL2 it needs bubblewrap and socat installed or Claude Code warns
+    and silently runs Bash unsandboxed (heartbeat does not check for or
+    enforce that dependency). allowUnsandboxedCommands=false closes the
+    dangerouslyDisableSandbox retry escape hatch, which would otherwise let a
+    blocked command quietly re-run unsandboxed under bypassPermissions.
+  - **Cursor, OpenCode, and any agent_command**: no OS-level enforcement is
+    wired up. For these, "auto" really does mean there is no technical
+    barrier beyond the model choosing to follow the safety prefix - treat it
+    exactly the way the paragraph above used to describe every agent.
+  None of this makes the project workspace itself off-limits: a sandboxed
+  Codex or Claude run can still edit, delete, or commit anything inside the
+  project. Sandboxing narrows "can reach the whole filesystem and network"
+  down to "can reach the workspace" - it is defense in depth on top of the
+  safety prefix, not a replacement for choosing trusted projects and
+  checklists in the first place.
 - **permission_mode "restricted" is advisory only, not a verified security
   boundary either.** It asks each agent CLI for a read-only-ish mode on a
   best-effort basis (Claude plan mode, Codex --sandbox read-only, Cursor
