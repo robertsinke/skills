@@ -37,13 +37,15 @@ the project's `AGENTS.md` at it, and registers it in `~/.agents/heartbeat/regist
 CLI commands:
 
 ```sh
-heartbeat automations create               # scaffold + register this project
-heartbeat automations list                 # every registered project + its last run
-heartbeat automations edit                 # open $EDITOR on this project's HEARTBEAT.md
-heartbeat automations pause / resume        # toggle this project's cron entry
-heartbeat runs list [--project <path>]      # recent runs as a markdown table
-heartbeat runs show <id>                    # full row for one run
-heartbeat runs annotate <id> "<note>"       # sanctioned way to edit run history
+heartbeat automations create                        # scaffold + register this project
+heartbeat automations list                          # every registered project + its last run
+heartbeat automations show [--project <path>]        # one project: registration, cron state, checklist, last run
+heartbeat automations edit                           # open $EDITOR on this project's HEARTBEAT.md
+heartbeat automations pause / resume                  # toggle this project's cron entry
+heartbeat automations delete [--purge] [--project <path>]  # unregister + stop cron (add --purge to also delete files)
+heartbeat runs list [--project <path>]                 # recent runs as a markdown table
+heartbeat runs show <id>                               # full row for one run
+heartbeat runs annotate <id> "<note>"                  # sanctioned way to edit run history
 ```
 
 See `skills/automations/heartbeat/SKILL.md` for full details.
