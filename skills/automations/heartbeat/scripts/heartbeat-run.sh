@@ -59,10 +59,18 @@ except Exception:
 }
 
 AGENT=$(read_cfg agent auto)
-if [ "$AGENT" = "auto" ]; then
+# agent_command lets ANY coding agent with a scriptable non-interactive mode plug in
+# (opencode, pi, kilo, cline, or anything else) without heartbeat needing built-in
+# knowledge of its flags. When set, it takes priority over the agent presets below -
+# "agent" then becomes just a free-text label for logging/display.
+AGENT_COMMAND=$(read_cfg agent_command "")
+AGENT_INPUT=$(read_cfg agent_input arg)
+
+if [ -z "$AGENT_COMMAND" ] && [ "$AGENT" = "auto" ]; then
   if   [ -d "$PROJECT_ROOT/.claude" ]; then AGENT=claude
   elif [ -d "$PROJECT_ROOT/.codex" ] || [ -f "$PROJECT_ROOT/AGENTS.md" ]; then AGENT=codex
   elif [ -d "$PROJECT_ROOT/.cursor" ]; then AGENT=cursor
+  elif [ -d "$PROJECT_ROOT/.opencode" ] || [ -f "$PROJECT_ROOT/opencode.json" ]; then AGENT=opencode
   else AGENT=claude
   fi
 fi
@@ -81,6 +89,7 @@ TIMEOUT_SECONDS=$(read_cfg timeout_seconds 600)
 
 if [ "$PERMISSION_MODE" = restricted ]; then
   echo "warning: permission_mode=restricted is advisory only, not a verified sandbox boundary" >&2
+  [ -n "$AGENT_COMMAND" ] && echo "warning: permission_mode has no effect on a custom agent_command - include whatever non-interactive/approval flags that tool needs directly in agent_command" >&2
 fi
 
 SAFETY_PREFIX="You are running as an unattended scheduled automation (a heartbeat), not an
@@ -100,35 +109,49 @@ CHECKLIST="${SAFETY_PREFIX}$(cat HEARTBEAT.md)"
 BEFORE=$(git -C "$PROJECT_ROOT" rev-parse HEAD 2>/dev/null || echo none)
 START=$(date +%s%3N)
 
-case "$AGENT" in
-  claude)
-    ARGS=(-p --output-format json)
-    [ "$MODEL" != default ] && ARGS+=(--model "$MODEL")
-    if [ "$PERMISSION_MODE" = restricted ]; then ARGS+=(--permission-mode plan)
-    else ARGS+=(--permission-mode bypassPermissions)
-    fi
-    ;;
-  codex)
-    ARGS=(exec --json)
-    [ "$MODEL" != default ] && ARGS+=(-m "$MODEL")
-    [ "$EFFORT" != default ] && ARGS+=(-c "model_reasoning_effort=$EFFORT")
-    if [ "$PERMISSION_MODE" = restricted ]; then ARGS+=(--sandbox read-only)
-    else ARGS+=(--full-auto --sandbox workspace-write)
-    fi
-    ;;
-  cursor)
-    ARGS=(-p --output-format json)
-    [ "$MODEL" != default ] && ARGS+=(--model "$MODEL")
-    if [ "$PERMISSION_MODE" = restricted ]; then ARGS+=(--sandbox enabled)
-    fi
-    # Note: Cursor CLI already runs non-interactively with full access under -p by default,
-    # so no extra flag is needed for auto mode.
-    ;;
-  *)
-    log_row error "unknown agent: $AGENT"
-    exit 0
-    ;;
-esac
+ARGS=()
+if [ -n "$AGENT_COMMAND" ]; then
+  : # custom command supplies its own flags entirely - see agent_command above
+else
+  case "$AGENT" in
+    claude)
+      ARGS=(-p --output-format json)
+      [ "$MODEL" != default ] && ARGS+=(--model "$MODEL")
+      if [ "$PERMISSION_MODE" = restricted ]; then ARGS+=(--permission-mode plan)
+      else ARGS+=(--permission-mode bypassPermissions)
+      fi
+      ;;
+    codex)
+      ARGS=(exec --json)
+      [ "$MODEL" != default ] && ARGS+=(-m "$MODEL")
+      [ "$EFFORT" != default ] && ARGS+=(-c "model_reasoning_effort=$EFFORT")
+      if [ "$PERMISSION_MODE" = restricted ]; then ARGS+=(--sandbox read-only)
+      else ARGS+=(--full-auto --sandbox workspace-write)
+      fi
+      ;;
+    cursor)
+      ARGS=(-p --output-format json)
+      [ "$MODEL" != default ] && ARGS+=(--model "$MODEL")
+      if [ "$PERMISSION_MODE" = restricted ]; then ARGS+=(--sandbox enabled)
+      fi
+      # Note: Cursor CLI already runs non-interactively with full access under -p by default,
+      # so no extra flag is needed for auto mode.
+      ;;
+    opencode)
+      ARGS=()
+      [ "$MODEL" != default ] && ARGS+=(--model "$MODEL")
+      if [ "$PERMISSION_MODE" != restricted ]; then ARGS+=(--auto)
+      fi
+      # Note: opencode has no verified read-only/restricted flag yet - restricted
+      # currently just omits --auto, which is unverified to stay non-blocking when
+      # unattended. Prefer permission_mode=auto for opencode until this is confirmed.
+      ;;
+    *)
+      log_row error "unknown agent: $AGENT (set agent_command in .heartbeat.json for an agent without a built-in preset)"
+      exit 0
+      ;;
+  esac
+fi
 
 # ---- run the agent CLI with a portable timeout ----
 # No `timeout`/`gtimeout` binary is assumed present (macOS ships neither by
@@ -138,11 +161,20 @@ esac
 OUT_FILE=$(mktemp)
 (
   cd "$PROJECT_ROOT" || exit 1
-  case "$AGENT" in
-    claude) exec claude "${ARGS[@]}" "$CHECKLIST" ;;
-    codex)  exec codex  "${ARGS[@]}" "$CHECKLIST" ;;
-    cursor) exec agent  "${ARGS[@]}" "$CHECKLIST" ;;
-  esac
+  if [ -n "$AGENT_COMMAND" ]; then
+    if [ "$AGENT_INPUT" = stdin ]; then
+      printf '%s' "$CHECKLIST" | exec $AGENT_COMMAND
+    else
+      exec $AGENT_COMMAND "$CHECKLIST"
+    fi
+  else
+    case "$AGENT" in
+      claude)   exec claude   "${ARGS[@]}" "$CHECKLIST" ;;
+      codex)    exec codex    "${ARGS[@]}" "$CHECKLIST" ;;
+      cursor)   exec agent    "${ARGS[@]}" "$CHECKLIST" ;;
+      opencode) exec opencode run "${ARGS[@]}" "$CHECKLIST" ;;
+    esac
+  fi
 ) > "$OUT_FILE" 2>&1 &
 AGENT_PID=$!
 
