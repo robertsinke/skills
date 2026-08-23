@@ -36,8 +36,7 @@ trap 'rm -rf "$LOCK_DIR"' EXIT
 # ---- HEARTBEAT.md validation ----
 # A malformed or empty checklist must never become the agent prompt for an
 # unattended run - see validate-heartbeat.py and SKILL.md Safety invariants.
-VALIDATION_OUT=$(python3 ./validate-heartbeat.py HEARTBEAT.md 2>&1)
-if [ $? -ne 0 ]; then
+if ! VALIDATION_OUT=$(python3 ./validate-heartbeat.py HEARTBEAT.md 2>&1); then
   log_row invalid "$VALIDATION_OUT"
   exit 0
 fi
@@ -45,7 +44,7 @@ fi
 # Optional top-level `enabled: false` disables every task without touching
 # cron or files. Exit silently (no DB row) so RUNS.md is not spammed while
 # intentionally disabled - same treatment as the missing-file early exit above.
-grep -qE "^enabled:\s*false\s*$" HEARTBEAT.md && exit 0
+grep -qE '^enabled:[[:space:]]*false[[:space:]]*$' HEARTBEAT.md && exit 0
 
 read_cfg() {
   # read_cfg <key> <default>

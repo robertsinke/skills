@@ -131,8 +131,10 @@ expected to follow but that nothing here technically forces.
   delete only unregisters and disables the schedule; --purge is required to
   delete HEARTBEAT.md, RUNS.md, or .heartbeat.db, and only when the user
   explicitly wants that.
-- Never hand-edit .heartbeat.db or RUNS.md; both are generated. The only
-  sanctioned way to annotate history is heartbeat runs annotate <id> "<note>".
+- Never hand-edit .heartbeat.db or the generated body of RUNS.md. RUNS.md
+  frontmatter may be customized and is preserved when the body regenerates.
+  The only sanctioned way to annotate history is
+  heartbeat runs annotate <id> "<note>".
 
 ## Lifecycle workflows
 
@@ -145,10 +147,13 @@ heartbeat automations create
 
 which runs, in order:
 
-1. **init** - scaffold automations/heartbeat/ (HEARTBEAT.md from the
-   template, .heartbeat.db, and copies of heartbeat-run.sh,
-   heartbeat-report.sh, validate-heartbeat.py). Files only - nothing is
-   scheduled or discoverable yet.
+1. **init** - scaffold automations/heartbeat/ (HEARTBEAT.md and RUNS.md from
+   templates, .heartbeat.db, and copies of heartbeat-run.sh,
+   heartbeat-report.sh, validate-heartbeat.py). It also creates a local hidden
+   template library: `automations/heartbeat/.ok/templates/` when the project
+   already uses OpenKnowledge templates anywhere in the repository, otherwise
+   `automations/heartbeat/.templates/`. Files only - nothing is scheduled or
+   discoverable yet.
 2. **register** - add the project to ~/.agents/heartbeat/registry.txt (so
    heartbeat automations list finds it) and append an "## Automation"
    pointer to the project AGENTS.md.
@@ -161,8 +166,8 @@ caused what. See reference/CLI.md for every command.
 
 Everyday workflows:
 - **Add or change a check**: edit HEARTBEAT.md directly, or
-  heartbeat automations edit. Multiple checks live in one file under one
-  tasks: block - do not create a new file per check.
+  heartbeat automations edit. Multiple checks live as rows in the one Tasks
+  table - do not create a new file per check.
 - **Review**: heartbeat automations list (all projects),
   heartbeat automations show (one project - registration, schedule state,
   lock state, validation result, checklist, last run), or
@@ -179,30 +184,45 @@ Everyday workflows:
 HEARTBEAT.md is user-authored configuration first, agent prompt content
 second - and validate-heartbeat.py enforces a boundary between the two so a
 checklist can only ever describe what to check, never grant itself
-permissions or override the runner. The schema (deliberately small, not
-general YAML):
+permissions or override the runner. YAML frontmatter holds document metadata
+and the optional logical enable switch. The canonical task schema is one
+Markdown table:
 
+```markdown
+---
+title: Heartbeat
+description: Scheduled local checks for this project.
+enabled: true
+---
+
+## Tasks
+
+| Task | Interval | Prompt |
+|---|---|---|
+| `example-check` | `30m` | Describe what to check here. |
 ```
-tasks:                     # required, at least one entry
-  - name: example-check     # required, unique, short kebab-case id
-    interval: 30m            # recommended: a hint the agent uses to judge
-                              # whether this task is due. Cron itself fires
-                              # on ONE fixed schedule for the whole file
-                              # (every 30 minutes by default) - there is no
-                              # per-task cron entry.
-    prompt: "..."             # required, plain text. Data, not policy.
-```
 
-Optional top-level enabled: false is a **logical disable**: the checklist
-itself says not to run, while cron keeps firing on schedule and immediately
-no-ops (heartbeat-run.sh exits before validation, no DB row, no agent call).
-Nothing about the registry, cron entry, or any files changes.
+Task is a required, unique, short kebab-case ID. Prompt is required plain
+text. Interval is recommended: it tells the agent whether a task is due, but
+cron still fires on one fixed schedule for the whole file (every 30 minutes
+by default). Escape a literal pipe in a prompt as `\|`.
 
-Validation runs before every scheduled run (and on demand via
-heartbeat automations show or heartbeat automations edit). A file is
-invalid if: tasks: is missing, the list is empty, any task is missing name
-or prompt, or two tasks share a name. A missing interval is a warning, not
-a fatal error.
+Frontmatter `enabled: false` is a **logical disable**: the checklist says not
+to run, while cron keeps firing on schedule and immediately no-ops
+(heartbeat-run.sh exits before validation, no DB row, no agent call). Nothing
+about the registry, cron entry, or files changes.
+
+Validation runs before every scheduled run (and on demand via heartbeat
+automations show or heartbeat automations edit). A file is invalid if the
+table is missing or empty, a row does not have exactly three columns, a task
+or prompt is missing, two tasks share a name, or both the table and legacy
+`tasks:` block are present. A missing interval is a warning, not fatal. The
+legacy block remains valid for existing installations but new files use the
+table.
+
+RUNS.md is generated with YAML frontmatter and a Markdown table. Its body is
+rewritten after each run; its existing frontmatter is preserved. Never edit
+its generated body by hand.
 
 .heartbeat.json (optional, same directory) overrides runtime behavior, not
 the checklist itself:
