@@ -178,6 +178,8 @@ def validate_task(path: Path, data: dict, body: str, caps: dict) -> list[str]:
     available = caps.get("agents", {})
     if agent in COMMANDS and agent in available and not available[agent].get("installed"):
         errors.append(f"agent '{agent}' is not installed on this computer")
+    if agent in available and available[agent].get("auth_status") == "unauthenticated":
+        errors.append(f"agent '{agent}' is installed but not authenticated")
     model = str(data.get("model", ""))
     if agent in available and model != "default" and available[agent].get("models_status") == "verified":
         if model not in available[agent].get("models", []):
@@ -241,9 +243,19 @@ def scan_capabilities(automations: Path) -> dict:
     agents = {}
     for name, command in COMMANDS.items():
         path = find_command(command, previous.get(name, {}).get("path"))
-        info = {"installed": bool(path), "path": path, "version": None, "models": [], "models_status": "unavailable", "efforts": sorted(EFFORTS[name])}
+        info = {"installed": bool(path), "path": path, "version": None, "auth_status": "unavailable", "models": [], "models_status": "unavailable", "efforts": sorted(EFFORTS[name])}
         if path:
             _, info["version"] = run_capture([path, "--version"])
+            if name == "claude":
+                _, output = run_capture([path, "auth", "status"])
+                try:
+                    info["auth_status"] = "authenticated" if json.loads(output).get("loggedIn") else "unauthenticated"
+                except (json.JSONDecodeError, AttributeError):
+                    pass
+            elif name == "codex":
+                code, output = run_capture([path, "login", "status"])
+                if code == 0:
+                    info["auth_status"] = "authenticated" if "logged in" in output.lower() else "unauthenticated"
             if name == "cursor":
                 code, output = run_capture([path, "models"], 15)
                 if code == 0:
@@ -259,10 +271,10 @@ def scan_capabilities(automations: Path) -> dict:
     target = capabilities_path(automations)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(result, indent=2) + "\n")
-    lines = ["---", "title: Agent options", "description: Agents, models, and effort levels available on this computer.", "generated: true", "local: true", f"last_scanned: {result['scanned_at']}", "---", "", "# Agent options", "", "| Agent | Installed | Version | Model discovery | Effort |", "|---|---:|---|---|---|"]
+    lines = ["---", "title: Agent options", "description: Agents, models, and effort levels available on this computer.", "generated: true", "local: true", f"last_scanned: {result['scanned_at']}", "---", "", "# Agent options", "", "| Agent | Installed | Authentication | Version | Model discovery | Effort |", "|---|---:|---|---|---|---|"]
     for name, info in agents.items():
         efforts = ", ".join(f"`{v}`" for v in info["efforts"])
-        lines.append(f"| `{name}` | {'Yes' if info['installed'] else 'No'} | {info['version'] or '—'} | {info['models_status']} | {efforts} |")
+        lines.append(f"| `{name}` | {'Yes' if info['installed'] else 'No'} | {info['auth_status']} | {info['version'] or '—'} | {info['models_status']} | {efforts} |")
     for name, info in agents.items():
         if info["models"]:
             lines.extend(["", f"## {name.title()} models", "", *[f"- `{model}`" for model in info["models"]]])
@@ -357,6 +369,12 @@ def resolve_agent(task, automations: Path, caps):
         return agent
     root = automations.parent
     markers = (("claude", root / ".claude"), ("codex", root / ".codex"), ("cursor", root / ".cursor"), ("opencode", root / ".opencode"))
+    for name, marker in markers:
+        if marker.exists() and caps.get("agents", {}).get(name, {}).get("auth_status") == "authenticated":
+            return name
+    authenticated = next((name for name in COMMANDS if caps.get("agents", {}).get(name, {}).get("auth_status") == "authenticated"), None)
+    if authenticated:
+        return authenticated
     for name, marker in markers:
         if marker.exists() and caps.get("agents", {}).get(name, {}).get("installed"):
             return name
