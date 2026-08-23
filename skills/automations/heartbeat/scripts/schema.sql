@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS runs (
   agent         TEXT,
   model         TEXT,
   effort        TEXT,
+  permission_mode TEXT,
   status        TEXT,
   exit_code     INTEGER,
   duration_ms   INTEGER,
