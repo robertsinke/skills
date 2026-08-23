@@ -2,3 +2,7 @@
 .heartbeat.json
 .heartbeat.lock/
 legacy-runs-template.md
+legacy-HEARTBEAT.md
+legacy-heartbeat-template.md
+legacy-*-heartbeat-template.md
+capabilities.json

@@ -4,9 +4,11 @@ Scheduled checks for this project.
 
 ## Human interface
 
-- `HEARTBEAT.md` — editable checklist and intervals
+- Each Markdown file with `type: automation` is one editable scheduled task.
+- `DASHBOARD.md` — generated status, validation, and next-run overview
+- `AGENT-OPTIONS.md` — generated agents, models, and effort available locally
 - `RUNS.md` — generated run history
 
 ## Runtime
 
-`_heartbeat/` contains the local scheduler, validator, SQLite history, and lock state. Treat it as infrastructure; use the heartbeat CLI instead of editing it directly.
+`_heartbeat/` contains the local scheduler, validator, capability cache, SQLite history, and lock state. Treat it as infrastructure; use the heartbeat CLI instead of editing it directly.

@@ -1,313 +1,138 @@
 ---
 name: heartbeat
-description: "Set up and manage scheduled local automations (checks that run on a timer) for the current project - local-only (no cloud service, no account), works with any coding agent CLI that has a scriptable non-interactive mode (built-in presets for Claude Code, Codex, Cursor, and OpenCode; anything else via a generic agent_command). Use when the user asks to add a recurring/periodic check, review past automation runs, or edit what a project checks automatically."
+description: "Set up and manage scheduled local project automations: create or edit recurring tasks, choose locally installed agent/model/effort settings, validate schedules, pause or resume execution, and review run history. Local-only; requires the computer to be awake and the chosen agent CLI to be usable."
 ---
 
 # Heartbeat
 
-Scheduled, local checks for a project. This is not literally "filesystem-only":
-it uses a local SQLite file for run history, cron for scheduling, a small
-global registry file for cross-project discovery, and whichever coding agent
-CLI is configured in the target project. What it does not use: a server, a
-cloud service or database, or an account.
+Heartbeat is a local dispatcher for recurring project tasks. Cron wakes one
+deterministic runner every five minutes; each automation file decides whether
+its own task is due. The runner invokes the selected agent once per due task,
+stores history in local SQLite, and regenerates the user-facing views.
 
-Not confined to any one agent. Built-in presets exist for Claude Code, Codex,
-Cursor, and OpenCode - anything else (pi, a future tool, an internal one)
-plugs in via agent_command in .heartbeat.json, as long as it has some
-scriptable, non-interactive, prompt-in/text-out mode. See Configuration
-schema below.
+Use the bundled `heartbeat` CLI for mechanical operations. If it is not on
+PATH, run `bash ~/.claude/skills/heartbeat/scripts/heartbeat ...`.
+Full commands: [reference/CLI.md](reference/CLI.md).
 
-This skill ships a CLI (heartbeat) for every mechanical/deterministic step.
-Use the CLI for anything it covers; only hand-edit HEARTBEAT.md, or read
-RUNS.md, when the action requires understanding what the user actually wants.
-Full command list: reference/CLI.md. This file covers trigger/scope, the
-safety model, lifecycle workflows, the config schema, and failure handling.
+## Files and ownership
 
-## If heartbeat is not on PATH
-
-scripts/link-skills.sh symlinks the CLI to ~/.agents/bin/heartbeat and adds
-that to PATH via the shell rc file, but a terminal opened before that ran
-will not have it yet. If heartbeat is not found, call the bundled script
-directly - it works the same either way, no PATH needed:
-
-```
-bash ~/.claude/skills/heartbeat/scripts/heartbeat automations create
+```text
+automations/
+├── <name>.md             user-owned automation files
+├── DASHBOARD.md          generated status, validation, and next runs
+├── AGENT-OPTIONS.md      generated agents, models, and effort on this computer
+├── RUNS.md               generated run history
+├── CONTEXT.md            folder contract
+├── .ok/templates/automation.md (or .templates/automation.md)
+└── _heartbeat/           versioned runtime + ignored local state
 ```
 
-## Trigger and scope
+`DASHBOARD.md`, `AGENT-OPTIONS.md`, and `RUNS.md` are generated and local.
+Automation files are the only task configuration source. Never hand-edit the
+SQLite database or generated files.
 
-Use this skill when the user asks to:
-- add a recurring or periodic check to the current project (a lint sweep, a
-  dependency audit, a "tell me if X changes" watcher, a morning summary, etc.)
-- review what a project is already checking, or its run history
-- change, pause, resume, or remove an existing scheduled check
+## Automation schema
 
-This is not the right tool for: a one-off task (just do it), a job that needs
-sub-minute latency (cron granularity is minutes, and the default schedule is
-every 30 minutes), or a long-running interactive process (a heartbeat run is
-a single bounded agent CLI invocation, not a persistent service).
-
-Only set this up for trusted projects and trusted checklists. permission_mode:
-auto (the default, required for unattended runs) removes every agent CLI's
-own approval prompts - see Safety invariants below for what does and does not
-back that up technically. The Claude and Codex presets add real OS-level
-sandboxing of Bash execution on top (workspace + temp dir only, no
-unallowed network), but the workspace itself stays fully writable, and the
-Cursor and OpenCode presets and any agent_command have no such backstop at
-all. Do not enable it on a project, or write a HEARTBEAT.md checklist, you
-would not trust to run unattended with no one reviewing actions before they
-happen.
-
-## Safety invariants
-
-These hold regardless of what a project HEARTBEAT.md says, and must not be
-weakened when editing a project automation. Read this section as: what is
-actually enforced, versus what is prompt-level guidance the agent is
-expected to follow but that nothing here technically forces.
-
-- **The safety prefix is a prompt-level guardrail, not a sandboxed
-  enforcement boundary.** heartbeat-run.sh prepends a fixed instruction
-  block to every prompt, before the HEARTBEAT.md content, and it cannot be
-  edited or removed via HEARTBEAT.md - that part is a real, non-negotiable
-  guarantee, because HEARTBEAT.md is data (what to check), never policy
-  (what is allowed). What it is NOT is a technical restriction on what the
-  agent can execute: it only works if the agent reads and follows it. If an
-  agent ignores, misreads, or is prompt-injected around the prefix, nothing
-  here stops it from running a destructive command.
-- **permission_mode "auto" (default) removes each agent CLI's own approval
-  prompts** so a cron-triggered run does not stall waiting for a human who
-  is not there - but "no prompts" is not the same as "no enforcement", and
-  it differs by preset:
-  - **Codex**: --full-auto pairs --ask-for-approval never with
-    --sandbox workspace-write, and the sandbox half is enforced by the OS
-    (Seatbelt on macOS, Landlock+seccomp on Linux) independently of the
-    approval policy - it can write inside the project workspace and cannot
-    reach the network or the filesystem outside it, regardless of what the
-    model decides to run.
-  - **Claude**: heartbeat-run.sh pairs --permission-mode bypassPermissions
-    with --settings '{"sandbox":{"enabled":true,"allowUnsandboxedCommands":false}}'.
-    Claude Code's built-in sandbox is off by default; heartbeat turns it on
-    for its own runs. It OS-enforces (Seatbelt / bubblewrap+socat) filesystem
-    and network limits on the Bash tool and its child processes only - it
-    does not constrain Claude's native Read/Edit/Write tools directly, and on
-    Linux/WSL2 it needs bubblewrap and socat installed or Claude Code warns
-    and silently runs Bash unsandboxed (heartbeat does not check for or
-    enforce that dependency). allowUnsandboxedCommands=false closes the
-    dangerouslyDisableSandbox retry escape hatch, which would otherwise let a
-    blocked command quietly re-run unsandboxed under bypassPermissions.
-  - **Cursor, OpenCode, and any agent_command**: no OS-level enforcement is
-    wired up. For these, "auto" really does mean there is no technical
-    barrier beyond the model choosing to follow the safety prefix - treat it
-    exactly the way the paragraph above used to describe every agent.
-  None of this makes the project workspace itself off-limits: a sandboxed
-  Codex or Claude run can still edit, delete, or commit anything inside the
-  project. Sandboxing narrows "can reach the whole filesystem and network"
-  down to "can reach the workspace" - it is defense in depth on top of the
-  safety prefix, not a replacement for choosing trusted projects and
-  checklists in the first place.
-- **permission_mode "restricted" is advisory only, not a verified security
-  boundary either.** It asks each agent CLI for a read-only-ish mode on a
-  best-effort basis (Claude plan mode, Codex --sandbox read-only, Cursor
-  --sandbox enabled, OpenCode currently just omits --auto - unverified), but
-  exact behavior is CLI- and version-dependent and is not something this
-  skill verifies or enforces.
-- **agent_command is a trust boundary the user opens explicitly, not an
-  integration this skill verifies.** Setting it means heartbeat execs that
-  exact command from cron, unattended, with the checklist as its input.
-  permission_mode has no effect on it, none of the built-in presets' flags
-  apply, and heartbeat cannot inspect or restrict what that command does.
-  Only point it at something already trusted to run non-interactively and
-  unattended on this machine.
-- **Notify-only by default.** Never enable auto-commit or destructive shell
-  commands from within a heartbeat run without the user explicitly asking -
-  this is a checklist-authoring convention layered on top of the guardrails
-  above, not a substitute for them.
-- **HEARTBEAT.md must pass validation before it is ever used as a prompt.**
-  A malformed or empty checklist is data that failed to parse, not an
-  instruction to interpret creatively - the run is skipped and logged as
-  status=invalid instead of being sent to the agent. See Configuration
-  schema below.
-- **Deletion never removes history by default.** heartbeat automations
-  delete only unregisters and disables the schedule; --purge is required to
-  delete HEARTBEAT.md, RUNS.md, or .heartbeat.db, and only when the user
-  explicitly wants that.
-- Never hand-edit `automations/_heartbeat/.heartbeat.db` or the generated body of RUNS.md. RUNS.md
-  frontmatter may be customized and is preserved when the body regenerates.
-  The only sanctioned way to annotate history is
-  heartbeat runs annotate <id> "<note>".
-
-## Lifecycle workflows
-
-First-time setup, from inside the target project, is three independent
-steps composed into one command:
-
-```
-heartbeat automations create
-```
-
-which runs, in order:
-
-1. **init** - scaffold the human interface in `automations/` (`CONTEXT.md`,
-   `HEARTBEAT.md`, and generated `RUNS.md`) and runtime infrastructure in
-   `automations/_heartbeat/` (`.heartbeat.db`, runner, reporter, and validator).
-   Runtime scripts are versionable; its `.gitignore` excludes machine-local
-   database, config, lock, and legacy migration state.
-   It creates `automations/.ok/frontmatter.yml` plus
-   `automations/.ok/templates/heartbeat.md` when the repository already uses
-   OpenKnowledge templates anywhere, otherwise
-   `automations/.templates/heartbeat.md`. `RUNS.md` is intentionally not a
-   template because generated history is not a stampable record. Existing
-   `automations/heartbeat/` installations are migrated during init; run
-   `register` and `schedule enable` afterward to refresh the AGENTS.md pointer
-   and cron path. Files only - nothing is scheduled or registered by init.
-2. **register** - add the project to ~/.agents/heartbeat/registry.txt (so
-   heartbeat automations list finds it) and append an "## Automation"
-   pointer to the project AGENTS.md.
-3. **schedule enable** - add the cron entry.
-
-Each step is independently callable (heartbeat init, heartbeat register,
-heartbeat schedule enable) and testable on its own - useful if only part of
-the setup needs to be redone, or to understand exactly which side effect
-caused what. See reference/CLI.md for every command.
-
-Everyday workflows:
-- **Add or change a check**: edit HEARTBEAT.md directly, or
-  heartbeat automations edit. Multiple checks live as rows in the one Tasks
-  table - do not create a new file per check.
-- **Review**: heartbeat automations list (all projects),
-  heartbeat automations show (one project - registration, schedule state,
-  lock state, validation result, checklist, last run), or
-  heartbeat runs list / RUNS.md (history for one project).
-- **Pause/resume**: heartbeat automations pause / resume (aliases for
-  heartbeat schedule disable / enable) - a **schedule disable**: cron itself
-  stops firing, as opposed to enabled: false in HEARTBEAT.md, which is a
-  logical disable (cron still fires, the run just no-ops). See Configuration
-  schema below for that distinction.
-- **Remove**: heartbeat automations delete [--purge].
-
-## Configuration schema
-
-HEARTBEAT.md is user-authored configuration first, agent prompt content
-second - and validate-heartbeat.py enforces a boundary between the two so a
-checklist can only ever describe what to check, never grant itself
-permissions or override the runner. YAML frontmatter holds document metadata
-and the optional logical enable switch. The canonical task schema is one
-Markdown table:
+One Markdown file is one independently scheduled task. Frontmatter is a
+strict, flat YAML subset; unknown properties are errors so misspellings never
+fall back silently. The Markdown body is the task prompt.
 
 ```markdown
 ---
-title: Heartbeat
-description: Scheduled local checks for this project.
+title: Daily briefing
+type: automation
+name: daily-briefing
 enabled: true
+schedule: "daily at 07:30"
+timezone: Europe/Oslo
+missed_run: catch-up
+max_lateness: 4h
+agent: codex
+model: default
+effort: high
+permission_mode: auto
+timeout: 10m
 ---
 
-## Tasks
+# Prompt
 
-| Task | Interval | Prompt |
-|---|---|---|
-| `example-check` | `30m` | Describe what to check here. |
+Prepare today's briefing. Report findings without changing files.
 ```
 
-Task is a required, unique, short kebab-case ID. Prompt is required plain
-text. Interval is recommended: it tells the agent whether a task is due, but
-cron still fires on one fixed schedule for the whole file (every 30 minutes
-by default). Escape a literal pipe in a prompt as `\|`.
+Properties:
 
-Frontmatter `enabled: false` is a **logical disable**: the checklist says not
-to run, while cron keeps firing on schedule and immediately no-ops
-(heartbeat-run.sh exits before validation, no DB row, no agent call). Nothing
-about the registry, cron entry, or files changes.
+- `title`, `name`, `enabled`, `schedule`, `agent`, `model`, and `effort` are required.
+- `type` must be `automation`; filename must equal `<name>.md`.
+- Schedule accepts `every 30m`, `every 6h`, `every 7d`, `daily at HH:MM`, or
+  `weekly on mon at HH:MM` (three-letter weekday).
+- `timezone` defaults to `local`; use an IANA name for explicit behavior.
+- `missed_run` is `catch-up` or `skip`; `max_lateness` defaults to `4h`.
+- `agent` is `auto`, `claude`, `codex`, `cursor`, `opencode`, or `custom`.
+- `model: default` is always accepted for an installed agent. Discovered model
+  lists are authoritative; agents without model discovery produce an
+  unverified value rather than a false claim.
+- `effort` is validated per agent. Unsupported values are errors, not ignored.
+- `permission_mode` is `auto` or `restricted`; restricted is best-effort and
+  agent-dependent, not a universal security boundary.
+- `timeout`, `max_lateness`: integer plus `m`, `h`, or `d`.
 
-Validation runs before every scheduled run (and on demand via heartbeat
-automations show or heartbeat automations edit). A file is invalid if the
-table is missing or empty, a row does not have exactly three columns, a task
-or prompt is missing, two tasks share a name, or both the table and legacy
-`tasks:` block are present. A missing interval is a warning, not fatal. The
-legacy block remains valid for existing installations but new files use the
-table.
+An invalid automation never runs and does not block valid siblings. Its exact
+file/property errors appear in `DASHBOARD.md` and `heartbeat validate` output.
 
-RUNS.md is generated with YAML frontmatter and a Markdown table. Its body is
-rewritten after each run; its existing frontmatter is preserved. Never edit
-its generated body by hand.
+## Local agent options
 
-`.heartbeat.json` (optional, in `automations/_heartbeat/`) overrides runtime behavior, not
-the checklist itself:
+`heartbeat capabilities refresh` scans installed built-in agent CLIs without
+using a model, writes `_heartbeat/capabilities.json`, and generates
+`AGENT-OPTIONS.md`. It refreshes during init, before validation when needed,
+and at most daily during dispatcher runs.
 
+The scanner distinguishes verified model lists from unavailable discovery.
+Cursor and OpenCode currently expose model-list commands; Claude and Codex may
+accept model IDs without exposing an account-complete list. Harness absence
+and verified-invalid models are fatal validation errors. Unverifiable models
+remain explicitly unverified and can still fail loudly at runtime.
+
+## Scheduling and missed runs
+
+The cron entry is only a dispatcher cadence. Task schedules live in automation
+frontmatter. SQLite records `task`, `task_file`, and `scheduled_for`, so due
+decisions never depend on agent judgment.
+
+If the computer is asleep or off, cron does not run. On the next dispatcher
+tick, `catch-up` runs the latest missed occurrence once when it remains within
+`max_lateness`; `skip` records it as missed after the normal dispatch grace.
+Missed interval occurrences coalesce rather than replaying a backlog.
+
+## Safety invariants
+
+- Every prompt receives a fixed safety prefix before the user-authored body.
+  Task files are data and cannot replace that prefix.
+- Notify/report is the default. Destructive commands, secret access, software
+  installation, and system configuration changes are prohibited by the prefix.
+- `permission_mode: auto` removes interactive approval stalls. Codex and Claude
+  add their available sandbox controls; Cursor, OpenCode, and custom commands
+  do not provide an equivalent verified boundary.
+- Workspace files remain reachable to an unattended agent. Enable only trusted
+  projects and prompts.
+- Custom agents keep `agent_command` in ignored `_heartbeat/.heartbeat.json`,
+  never in task frontmatter. That command is an explicit local trust boundary.
+- One invalid task is isolated; one runner lock prevents overlapping dispatchers.
+- Agent timeout, non-zero exit, configuration failure, alert, success, and
+  missed occurrences are recorded per task.
+
+## Lifecycle
+
+```sh
+heartbeat automations create       # init + register + schedule enable
+heartbeat automations add <name>   # stamp one automation
+heartbeat automations edit <name>  # edit, then validate
+heartbeat automations show         # dashboard + registration/schedule state
+heartbeat automations pause        # disable cron
+heartbeat automations resume       # enable cron
+heartbeat runs list                # per-task history
 ```
-{
-  "agent": "claude|codex|cursor|opencode|auto",
-  "agent_command": "opencode run --auto",
-  "agent_input": "arg|stdin",
-  "model": "...",
-  "effort": "...",
-  "permission_mode": "auto|restricted",
-  "timeout_seconds": 600
-}
-```
 
-There are four built-in agent presets (claude, codex, cursor, opencode), plus
-auto (default - detected from marker files/dirs in the project). Setting
-agent_command switches to a generic path that works with ANY coding agent CLI
-that has a scriptable non-interactive mode: the checklist (with the safety
-prefix already prepended) is passed to agent_command as its final argument by
-default, or piped via stdin if agent_input is "stdin". agent_command takes
-priority over the agent presets - agent then becomes just a label for
-logging. There is no built-in usage/cost parsing for agent_command or
-opencode today (only claude and codex give structured token/cost data back);
-output and status (ok/alert/error, via exit code and the HEARTBEAT_OK
-sentinel) still work the same for every agent.
-
-If a task needs a command the Claude or Codex sandbox blocks (docker,
-watchman, and similar tools are common cases - see Safety invariants above),
-add an exclusion in the project's own agent config rather than touching
-heartbeat-run.sh: sandbox.excludedCommands / sandbox.filesystem.allowWrite in
-.claude/settings.json or .claude/settings.local.json for Claude (array keys
-merge with heartbeat's --settings override, so this layers on top of it), or
-the equivalent sandbox_workspace_write.writable_roots / network_access keys
-in Codex's config.toml.
-
-## Failure and recovery rules
-
-- **Duplicate execution**: heartbeat-run.sh takes a lock in
-  `automations/_heartbeat/.heartbeat.lock/` (created with mkdir for an atomic,
-  dependency-free lock) before
-  doing anything else. If cron fires while a previous run is still going,
-  the new run logs status=skipped and exits immediately rather than running
-  concurrently. If the lock owner process is no longer alive (a crashed or
-  killed prior run), the lock is treated as stale and reclaimed.
-- **Agent timeout**: the agent CLI is given timeout_seconds (default 600)
-  to finish. No timeout/gtimeout binary is assumed present - macOS ships
-  neither by default - so this is implemented with a portable poll-and-kill
-  loop in heartbeat-run.sh. On timeout the run is logged as status=timeout
-  with whatever partial output existed; killing the process tree is
-  best-effort, not guaranteed for every agent CLI/OS combination.
-- **Malformed HEARTBEAT.md**: caught by validate-heartbeat.py before any
-  agent is invoked. Logged as status=invalid with the specific parse
-  error(s); the checklist is never sent to the agent in this state.
-- **Sandbox-incompatible commands (Claude and Codex presets)**: a task that
-  needs docker, watchman, or another tool the OS-level sandbox blocks (see
-  Safety invariants) surfaces as a normal agent failure - typically
-  status=error or an alert with the sandbox violation in the output, not a
-  new status value. Fix it in the project's own agent config (see
-  Configuration schema), not by weakening heartbeat-run.sh.
-- **Missed cron runs**: if the machine is asleep or off at the scheduled
-  time, that run simply does not happen - there is no catch-up/backfill
-  mechanism. This is an accepted limitation, not a bug: a catch-up run
-  would have to guess how much of the missed interval is still relevant.
-- **Partial run state**: every code path that actually evaluates a
-  checklist (skipped, invalid, timeout, error, alert, ok) writes exactly one
-  row to `automations/_heartbeat/.heartbeat.db`, so RUNS.md reflects everything that was attempted.
-  Two states are intentionally silent and write no row: HEARTBEAT.md missing
-  entirely, and enabled: false (the logical disable from Configuration
-  schema) - both mean "nothing was configured to run" rather than a run
-  outcome, so RUNS.md is not spammed every cron tick while intentionally
-  idle.
-- **Recovering from a stuck lock**: heartbeat automations show reports lock
-  state (held vs. stale) for a project. A held lock with a dead PID means
-  the next scheduled run will reclaim it automatically; nothing manual is
-  needed. Only intervene by hand (remove `automations/_heartbeat/.heartbeat.lock`)
-  if a genuinely stuck process needs to be cleared before the next cron tick.
-
-## CLI reference
-
-Full command list, flags, and examples: reference/CLI.md.
+`heartbeat init` migrates the previous `HEARTBEAT.md` table into one file per
+row, preserves `.heartbeat.db`, and archives the old checklist under ignored
+`_heartbeat/legacy-HEARTBEAT.md`. Run `register` afterward to refresh AGENTS.md
+and `schedule enable` to refresh the cron path.

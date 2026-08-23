@@ -1,0 +1,19 @@
+---
+title: Example automation
+type: automation
+name: example-automation
+enabled: true
+schedule: "every 1d"
+timezone: local
+missed_run: catch-up
+max_lateness: 4h
+agent: auto
+model: default
+effort: default
+permission_mode: auto
+timeout: 10m
+---
+
+# Prompt
+
+Describe what to check. Report findings without changing files.

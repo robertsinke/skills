@@ -4,13 +4,17 @@
 --   alert    - ran, replied with something other than HEARTBEAT_OK
 --   error    - agent CLI exited non-zero
 --   timeout  - agent exceeded timeout_seconds and was killed (see .heartbeat.json)
---   invalid  - HEARTBEAT.md failed validate-heartbeat.py; agent was never invoked
+--   configuration_error - task configuration or agent executable failed
+--   missed   - scheduled occurrence exceeded its allowed run window
 --   skipped  - a previous run's lock was still held; this cycle was skipped
 CREATE TABLE IF NOT EXISTS runs (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   ts            TEXT,
   date          TEXT,
   time          TEXT,
+  task          TEXT,
+  task_file     TEXT,
+  scheduled_for TEXT,
   agent         TEXT,
   model         TEXT,
   effort        TEXT,
@@ -27,8 +31,6 @@ CREATE TABLE IF NOT EXISTS runs (
   dirty_files   INTEGER,
   note          TEXT
 );
-
-
 
 
 

@@ -31,11 +31,19 @@ if grep -qF "$TARGET" "$TMP"; then
     sed -i.bak "\#$TARGET# s/^\([^#]\)/#\1/" "$TMP"
   else
     sed -i.bak "\#$TARGET# s/^#//" "$TMP"
+    python3 -c 'from pathlib import Path; import sys
+p=Path(sys.argv[1]); target=sys.argv[2]; lines=[]
+for line in p.read_text().splitlines():
+    if target in line:
+        command=line[line.index("cd "):]
+        line="*/5 * * * * " + command
+    lines.append(line)
+p.write_text("\n".join(lines)+"\n")' "$TMP" "$TARGET"
   fi
 else
   if [ "$MODE" = enable ]; then
     CRON_CMD="cd $TARGET && ./heartbeat-run.sh && ./heartbeat-report.sh"
-    echo "*/30 * * * * $CRON_CMD" >> "$TMP"
+    echo "*/5 * * * * $CRON_CMD" >> "$TMP"
   else
     echo "no cron entry for $TARGET - nothing to disable"
   fi
