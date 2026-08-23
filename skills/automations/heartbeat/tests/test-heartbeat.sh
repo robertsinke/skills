@@ -57,6 +57,11 @@ assert_contains 'example-automation' "$AUTO/RUNS.md"
 assert_file "$AUTO/tasks/second-task.md"
 rm "$AUTO/tasks/second-task.md"
 
+printf '%s\n' '# Test' '' '## Automation' 'Scheduled checks live in automations/ (checklist: HEARTBEAT.md, history: RUNS.md; runtime: \_heartbeat/).' > "$PROJECT/AGENTS.md"
+(cd "$PROJECT" && HOME="$TEST_ROOT/home" bash "$SKILL_DIR/scripts/heartbeat" register >/dev/null)
+assert_contains 'Scheduled automation tasks live in automations/tasks/' "$PROJECT/AGENTS.md"
+[ "$(grep -c '^Scheduled ' "$PROJECT/AGENTS.md")" = 1 ] || fail "registration duplicated the automation pointer"
+
 sqlite3 "$RUN/.heartbeat.db" 'DELETE FROM runs;'
 (cd "$RUN" && PATH="/usr/bin:/bin" ./heartbeat-run.sh)
 [ "$(sqlite3 "$RUN/.heartbeat.db" 'SELECT status FROM runs ORDER BY id DESC LIMIT 1;')" = ok ] || fail "cron-like PATH could not use discovered absolute agent path"
