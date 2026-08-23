@@ -118,7 +118,21 @@ else
       ARGS=(-p --output-format json)
       [ "$MODEL" != default ] && ARGS+=(--model "$MODEL")
       if [ "$PERMISSION_MODE" = restricted ]; then ARGS+=(--permission-mode plan)
-      else ARGS+=(--permission-mode bypassPermissions)
+      else
+        ARGS+=(--permission-mode bypassPermissions)
+        # Real OS-level enforcement (Seatbelt on macOS, bubblewrap+socat on
+        # Linux/WSL2), confirmed against code.claude.com/docs/en/settings-reference:
+        # sandbox.enabled turns on OS-level Bash sandboxing (workspace + temp dir
+        # only, network denied by default); autoAllowBashIfSandboxed already
+        # defaults to true, so no prompts; allowUnsandboxedCommands=false closes
+        # the dangerouslyDisableSandbox retry escape hatch, which would otherwise
+        # let a sandboxed command silently re-run unsandboxed under
+        # bypassPermissions (that mode skips the classifier that normally gates
+        # the retry). Applies to the Bash tool and its child processes only, not
+        # Claude's native Read/Edit/Write tools. If sandbox deps are missing on
+        # Linux, Claude Code itself warns and runs unsandboxed - heartbeat does
+        # not detect or enforce that dependency.
+        ARGS+=(--settings '{"sandbox":{"enabled":true,"allowUnsandboxedCommands":false}}')
       fi
       ;;
     codex)
