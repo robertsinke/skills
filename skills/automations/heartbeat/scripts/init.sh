@@ -11,6 +11,7 @@ set -euo pipefail
 SKILL_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PROJECT_DIR="$(pwd)"
 AUTOMATIONS_DIR="$PROJECT_DIR/automations"
+TASKS_DIR="$AUTOMATIONS_DIR/tasks"
 RUNTIME_DIR="$AUTOMATIONS_DIR/_heartbeat"
 LEGACY_DIR="$AUTOMATIONS_DIR/heartbeat"
 
@@ -24,12 +25,21 @@ OPENKNOWLEDGE_TEMPLATES="$(
     -type d -path '*/.ok/templates' -print -quit 2>/dev/null || true
 )"
 if [ -n "$OPENKNOWLEDGE_TEMPLATES" ]; then
-  TEMPLATE_DIR="$AUTOMATIONS_DIR/.ok/templates"
+  TEMPLATE_DIR="$TASKS_DIR/.ok/templates"
 else
-  TEMPLATE_DIR="$AUTOMATIONS_DIR/.templates"
+  TEMPLATE_DIR="$TASKS_DIR/.templates"
 fi
 
-mkdir -p "$AUTOMATIONS_DIR" "$RUNTIME_DIR" "$TEMPLATE_DIR"
+mkdir -p "$AUTOMATIONS_DIR" "$TASKS_DIR" "$RUNTIME_DIR" "$TEMPLATE_DIR"
+
+for old_template in "$AUTOMATIONS_DIR/.ok/templates/automation.md" "$AUTOMATIONS_DIR/.templates/automation.md"; do
+  [ -f "$old_template" ] || continue
+  if [ ! -f "$TEMPLATE_DIR/automation.md" ]; then
+    mv "$old_template" "$TEMPLATE_DIR/automation.md"
+  else
+    mv "$old_template" "$RUNTIME_DIR/legacy-automation-template.md"
+  fi
+done
 
 [ -f "$TEMPLATE_DIR/automation.md" ] || cp "$SKILL_DIR/templates/AUTOMATION.md.template" "$TEMPLATE_DIR/automation.md"
 
@@ -41,7 +51,8 @@ done < "$SKILL_DIR/templates/runtime.gitignore.template"
 
 GENERATED_IGNORE="$AUTOMATIONS_DIR/.gitignore"
 touch "$GENERATED_IGNORE"
-for generated in DASHBOARD.md AGENT-OPTIONS.md RUNS.md; do
+sed -i.bak '/^AGENT-OPTIONS\.md$/d' "$GENERATED_IGNORE" && rm -f "$GENERATED_IGNORE.bak"
+for generated in DASHBOARD.md RUNS.md; do
   grep -qxF "$generated" "$GENERATED_IGNORE" || echo "$generated" >> "$GENERATED_IGNORE"
 done
 
@@ -51,22 +62,24 @@ cp "$SKILL_DIR/scripts/validate-heartbeat.py" "$RUNTIME_DIR/validate-heartbeat.p
 cp "$SKILL_DIR/scripts/heartbeat_engine.py" "$RUNTIME_DIR/heartbeat_engine.py"
 chmod +x "$RUNTIME_DIR/heartbeat-run.sh" "$RUNTIME_DIR/heartbeat-report.sh" "$RUNTIME_DIR/validate-heartbeat.py" "$RUNTIME_DIR/heartbeat_engine.py"
 
-if [ -f "$AUTOMATIONS_DIR/HEARTBEAT.md" ]; then
-  python3 "$RUNTIME_DIR/heartbeat_engine.py" migrate "$AUTOMATIONS_DIR"
-fi
+python3 "$RUNTIME_DIR/heartbeat_engine.py" migrate "$AUTOMATIONS_DIR"
 
-if ! grep -l '^type:[[:space:]]*automation[[:space:]]*$' "$AUTOMATIONS_DIR"/*.md >/dev/null 2>&1; then
-  cp "$TEMPLATE_DIR/automation.md" "$AUTOMATIONS_DIR/example-automation.md"
+if ! grep -l '^type:[[:space:]]*automation[[:space:]]*$' "$TASKS_DIR"/*.md >/dev/null 2>&1; then
+  cp "$TEMPLATE_DIR/automation.md" "$TASKS_DIR/example-automation.md"
 fi
 
 python3 "$RUNTIME_DIR/heartbeat_engine.py" scan "$AUTOMATIONS_DIR"
 python3 "$RUNTIME_DIR/heartbeat_engine.py" report "$AUTOMATIONS_DIR"
 
-if [ "$TEMPLATE_DIR" = "$AUTOMATIONS_DIR/.ok/templates" ]; then
+if [ "$TEMPLATE_DIR" = "$TASKS_DIR/.ok/templates" ]; then
+  mkdir -p "$AUTOMATIONS_DIR/.ok" "$TASKS_DIR/.ok"
   [ -f "$AUTOMATIONS_DIR/.ok/frontmatter.yml" ] || cp "$SKILL_DIR/templates/frontmatter.yml" "$AUTOMATIONS_DIR/.ok/frontmatter.yml"
+  [ -f "$TASKS_DIR/.ok/frontmatter.yml" ] || cp "$SKILL_DIR/templates/tasks-frontmatter.yml" "$TASKS_DIR/.ok/frontmatter.yml"
 fi
 
-echo "scaffolded $AUTOMATIONS_DIR (automation files, DASHBOARD.md, AGENT-OPTIONS.md, RUNS.md, CONTEXT.md)"
-echo "runtime: $RUNTIME_DIR (.heartbeat.db, heartbeat_engine.py, runner, reporter, validator)"
+find "$AUTOMATIONS_DIR/.ok/templates" "$AUTOMATIONS_DIR/.templates" -depth -type d -empty -exec rmdir {} \; 2>/dev/null || true
+
+echo "scaffolded $AUTOMATIONS_DIR (tasks/, DASHBOARD.md, RUNS.md, CONTEXT.md)"
+echo "runtime: $RUNTIME_DIR (.heartbeat.db, AGENT-OPTIONS.md, engine, runner, reporter, validator)"
 echo "templates: $TEMPLATE_DIR"
 echo "not yet registered or scheduled - run: heartbeat register && heartbeat schedule enable"

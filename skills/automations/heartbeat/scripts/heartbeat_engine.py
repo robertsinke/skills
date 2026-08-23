@@ -16,7 +16,7 @@ import sys
 import time
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-GENERATED = {"DASHBOARD.md", "AGENT-OPTIONS.md", "RUNS.md", "CONTEXT.md"}
+ROOT_DOCUMENTS = {"DASHBOARD.md", "RUNS.md", "CONTEXT.md", "AGENT-OPTIONS.md", "HEARTBEAT.md"}
 FIELDS = {
     "title", "type", "name", "enabled", "schedule", "timezone",
     "missed_run", "max_lateness", "agent", "model", "effort",
@@ -126,6 +126,14 @@ def capabilities_path(automations: Path) -> Path:
     return automations / "_heartbeat" / "capabilities.json"
 
 
+def tasks_path(automations: Path) -> Path:
+    return automations / "tasks"
+
+
+def agent_options_path(automations: Path) -> Path:
+    return automations / "_heartbeat" / "AGENT-OPTIONS.md"
+
+
 def load_capabilities(automations: Path) -> dict:
     try:
         return json.loads(capabilities_path(automations).read_text())
@@ -193,9 +201,7 @@ def discover(automations: Path) -> tuple[list[dict], list[dict]]:
     caps = load_capabilities(automations)
     tasks, invalid = [], []
     seen = set()
-    for path in sorted(automations.glob("*.md")):
-        if path.name in GENERATED:
-            continue
+    for path in sorted(tasks_path(automations).glob("*.md")):
         try:
             data, body = parse_document(path)
             errors = validate_task(path, data, body, caps)
@@ -278,7 +284,7 @@ def scan_capabilities(automations: Path) -> dict:
     for name, info in agents.items():
         if info["models"]:
             lines.extend(["", f"## {name.title()} models", "", *[f"- `{model}`" for model in info["models"]]])
-    (automations / "AGENT-OPTIONS.md").write_text("\n".join(lines) + "\n")
+    agent_options_path(automations).write_text("\n".join(lines) + "\n")
     return result
 
 
@@ -437,7 +443,7 @@ def execute_task(task, agent, automations, conn, scheduled):
         if agent in COMMANDS:
             agent_path = load_capabilities(automations).get("agents", {}).get(agent, {}).get("path")
             if not agent_path or not os.access(agent_path, os.X_OK):
-                raise ConfigError(f"agent '{agent}' executable is unavailable; refresh AGENT-OPTIONS.md")
+                raise ConfigError(f"agent '{agent}' executable is unavailable; refresh _heartbeat/AGENT-OPTIONS.md")
             cmd[0] = agent_path
     except ConfigError as exc:
         insert_run(conn, task, scheduled, agent, "configuration_error", str(exc))
@@ -481,15 +487,15 @@ def report(automations: Path):
     tasks, invalid = discover(automations)
     conn = connect_db(automations)
     now = dt.datetime.now(dt.timezone.utc)
-    rows = ["---", "title: Dashboard", "description: Status and schedules for local automations.", "generated: true", "local: true", "---", "", "# Dashboard", "", "| Automation | Schedule | Agent | Model | Validation | Last run | Next run |", "|---|---|---|---|---|---|---|"]
+    rows = ["---", "title: Dashboard", "description: Status and schedules for local automations.", "generated: true", "local: true", "---", "", "# Dashboard", "", "[Local agent options](_heartbeat/AGENT-OPTIONS.md)", "", "| Automation | Schedule | Agent | Model | Validation | Last run | Next run |", "|---|---|---|---|---|---|---|"]
     for task in tasks:
         last = conn.execute("SELECT status, ts FROM runs WHERE task=? ORDER BY ts DESC LIMIT 1", (task["name"],)).fetchone()
         scheduled = latest_scheduled(conn, task["name"])
         nxt = next_occurrence(task, now, scheduled).astimezone(timezone(task.get("timezone", "local"))).strftime("%Y-%m-%d %H:%M %Z")
         validation = "Valid" if not task.get("warnings") else "Valid · " + "; ".join(task["warnings"])
-        rows.append(f"| [{task['title']}]({Path(task['path']).name}) | `{task['schedule']}` | `{task['agent']}` | `{task['model']}` | {validation} | {last[0] + ' · ' + last[1] if last else 'Never'} | {nxt} |")
+        rows.append(f"| [{task['title']}](tasks/{Path(task['path']).name}) | `{task['schedule']}` | `{task['agent']}` | `{task['model']}` | {validation} | {last[0] + ' · ' + last[1] if last else 'Never'} | {nxt} |")
     for item in invalid:
-        rows.append(f"| [{item.get('title', item['name'])}]({Path(item['path']).name}) | — | — | — | **Invalid:** {'; '.join(item['errors'])} | — | — |")
+        rows.append(f"| [{item.get('title', item['name'])}](tasks/{Path(item['path']).name}) | — | — | — | **Invalid:** {'; '.join(item['errors'])} | — | — |")
     (automations / "DASHBOARD.md").write_text("\n".join(rows) + "\n")
     run_rows = ["---", "title: Runs", "description: Generated history for local automations.", "generated: true", "local: true", "---", "", "# Runs", "", "| Date | Task | Agent | Model | Status | Duration | Summary |", "|---|---|---|---|---|---|---|"]
     for row in conn.execute("SELECT date,task,agent,model,status,duration_ms,output FROM runs ORDER BY ts DESC LIMIT 100"):
@@ -554,7 +560,7 @@ def migrate_heartbeat(automations: Path):
     for line in lines[header + 2:]:
         if not line.strip().startswith("|"): break
         name, interval, prompt = split_table(line)
-        target = automations / f"{name}.md"
+        target = tasks_path(automations) / f"{name}.md"
         if target.exists():
             raise ConfigError(f"cannot migrate: {target.name} already exists")
         title = name.replace("-", " ").title()
@@ -589,6 +595,25 @@ timeout: 10m
             legacy_template.rename(destination)
 
 
+def migrate_flat_tasks(automations: Path):
+    destination = tasks_path(automations)
+    destination.mkdir(exist_ok=True)
+    for source in sorted(automations.glob("*.md")):
+        if source.name in ROOT_DOCUMENTS:
+            continue
+        target = destination / source.name
+        if target.exists():
+            raise ConfigError(f"cannot migrate: {target} already exists")
+        source.rename(target)
+    old_options = automations / "AGENT-OPTIONS.md"
+    if old_options.exists():
+        target = agent_options_path(automations)
+        if target.exists():
+            old_options.unlink()
+        else:
+            old_options.rename(target)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("command", choices=("validate", "scan", "report", "run", "migrate"))
@@ -596,12 +621,18 @@ def main():
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
     automations = Path(args.path).resolve()
-    if automations.is_file(): automations = automations.parent
+    if automations.is_file():
+        automations = automations.parent.parent if automations.parent.name == "tasks" else automations.parent
+    elif automations.name == "tasks":
+        automations = automations.parent
     try:
         if args.command == "scan": scan_capabilities(automations)
         elif args.command == "report": report(automations)
         elif args.command == "run": run_due(automations)
-        elif args.command == "migrate": migrate_heartbeat(automations)
+        elif args.command == "migrate":
+            tasks_path(automations).mkdir(exist_ok=True)
+            migrate_heartbeat(automations)
+            migrate_flat_tasks(automations)
         else:
             cap_file = capabilities_path(automations)
             if not cap_file.exists() or time.time() - cap_file.stat().st_mtime > 86400:

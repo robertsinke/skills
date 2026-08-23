@@ -28,15 +28,20 @@ PROJECT="$TEST_ROOT/project"
 mkdir -p "$PROJECT/.ok/templates"
 (cd "$PROJECT" && PATH="$FAKE_BIN:$PATH" bash "$SKILL_DIR/scripts/init.sh" >/dev/null)
 AUTO="$PROJECT/automations"; RUN="$AUTO/_heartbeat"
-assert_file "$AUTO/example-automation.md"
+assert_file "$AUTO/tasks/example-automation.md"
 assert_file "$AUTO/DASHBOARD.md"
-assert_file "$AUTO/AGENT-OPTIONS.md"
+assert_file "$RUN/AGENT-OPTIONS.md"
 assert_file "$AUTO/RUNS.md"
-assert_file "$AUTO/.ok/templates/automation.md"
+assert_file "$AUTO/tasks/.ok/templates/automation.md"
 assert_file "$AUTO/.ok/frontmatter.yml"
+assert_file "$AUTO/tasks/.ok/frontmatter.yml"
 assert_file "$RUN/heartbeat_engine.py"
 [ ! -e "$AUTO/HEARTBEAT.md" ] || fail "clean install created legacy HEARTBEAT.md"
+[ ! -e "$AUTO/AGENT-OPTIONS.md" ] || fail "agent options remained at automations root"
+[ "$(find "$AUTO" -maxdepth 1 -type f -name '*.md' -exec basename {} \; | sort | tr '\n' ' ')" = "CONTEXT.md DASHBOARD.md RUNS.md " ] || fail "unexpected Markdown file at automations root"
 python3 "$RUN/validate-heartbeat.py" "$AUTO" >/dev/null
+python3 "$RUN/validate-heartbeat.py" "$AUTO/tasks" >/dev/null
+python3 "$RUN/validate-heartbeat.py" "$AUTO/tasks/example-automation.md" >/dev/null
 assert_contains '"models_status": "verified"' "$RUN/capabilities.json"
 assert_contains '"auth_status": "authenticated"' "$RUN/capabilities.json"
 python3 -c 'import importlib.util,sys; s=importlib.util.spec_from_file_location("heartbeat_engine",sys.argv[1]); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); task={"model":"default","effort":"default","permission_mode":"auto"}; cmd=m.command_for(task,"codex",None); assert "--approve-for-me" in cmd and "--sandbox" not in cmd' "$RUN/heartbeat_engine.py"
@@ -44,23 +49,29 @@ python3 -c 'import importlib.util,sys; s=importlib.util.spec_from_file_location(
 (cd "$RUN" && PATH="$FAKE_BIN:$PATH" ./heartbeat-run.sh)
 [ "$(sqlite3 "$RUN/.heartbeat.db" 'SELECT task FROM runs ORDER BY id DESC LIMIT 1;')" = example-automation ] || fail "task run was not recorded"
 assert_contains 'example-automation' "$AUTO/DASHBOARD.md"
+assert_contains 'tasks/example-automation.md' "$AUTO/DASHBOARD.md"
+assert_contains '_heartbeat/AGENT-OPTIONS.md' "$AUTO/DASHBOARD.md"
 assert_contains 'example-automation' "$AUTO/RUNS.md"
+
+(cd "$PROJECT" && HOME="$TEST_ROOT/home" bash "$SKILL_DIR/scripts/heartbeat" automations add second-task >/dev/null)
+assert_file "$AUTO/tasks/second-task.md"
+rm "$AUTO/tasks/second-task.md"
 
 sqlite3 "$RUN/.heartbeat.db" 'DELETE FROM runs;'
 (cd "$RUN" && PATH="/usr/bin:/bin" ./heartbeat-run.sh)
 [ "$(sqlite3 "$RUN/.heartbeat.db" 'SELECT status FROM runs ORDER BY id DESC LIMIT 1;')" = ok ] || fail "cron-like PATH could not use discovered absolute agent path"
 
-INVALID="$AUTO/bad-model.md"
+INVALID="$AUTO/tasks/bad-model.md"
 sed 's/name: example-automation/name: bad-model/; s/title: Example automation/title: Bad model/; s/agent: auto/agent: cursor/; s/model: default/model: missing-model/' "$SKILL_DIR/templates/AUTOMATION.md.template" > "$INVALID"
 if python3 "$RUN/validate-heartbeat.py" "$AUTO" > "$TEST_ROOT/invalid.out" 2>&1; then fail "invalid discovered model passed"; fi
 assert_contains "model 'missing-model' is not available for cursor" "$TEST_ROOT/invalid.out"
 rm "$INVALID"
 
-sed 's/name: example-automation/name: logged-out/; s/title: Example automation/title: Logged out/; s/agent: auto/agent: claude/' "$SKILL_DIR/templates/AUTOMATION.md.template" > "$AUTO/logged-out.md"
+sed 's/name: example-automation/name: logged-out/; s/title: Example automation/title: Logged out/; s/agent: auto/agent: claude/' "$SKILL_DIR/templates/AUTOMATION.md.template" > "$AUTO/tasks/logged-out.md"
 python3 -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); d["agents"]["claude"]["auth_status"]="unauthenticated"; open(p,"w").write(json.dumps(d))' "$RUN/capabilities.json"
 if python3 "$RUN/validate-heartbeat.py" "$AUTO" > "$TEST_ROOT/auth.out" 2>&1; then fail "logged-out agent passed validation"; fi
 assert_contains "agent 'claude' is installed but not authenticated" "$TEST_ROOT/auth.out"
-rm "$AUTO/logged-out.md"
+rm "$AUTO/tasks/logged-out.md"
 PATH="$FAKE_BIN:$PATH" python3 "$RUN/heartbeat_engine.py" scan "$AUTO"
 
 LEGACY="$TEST_ROOT/legacy"; mkdir -p "$LEGACY/automations/_heartbeat" "$LEGACY/.ok/templates"
@@ -73,13 +84,25 @@ printf '%s\n' \
   '| `dead-links` | `30d` | Check links. |' > "$LEGACY/automations/HEARTBEAT.md"
 sqlite3 "$LEGACY/automations/_heartbeat/.heartbeat.db" 'CREATE TABLE runs (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, date TEXT, time TEXT, status TEXT, output TEXT); INSERT INTO runs(ts,date,time,status,output) VALUES("2026-01-01","2026-01-01","00:00:00","ok","preserved");'
 (cd "$LEGACY" && PATH="$FAKE_BIN:$PATH" bash "$SKILL_DIR/scripts/init.sh" >/dev/null)
-assert_file "$LEGACY/automations/daily-briefing.md"
-assert_file "$LEGACY/automations/dead-links.md"
+assert_file "$LEGACY/automations/tasks/daily-briefing.md"
+assert_file "$LEGACY/automations/tasks/dead-links.md"
 assert_file "$LEGACY/automations/_heartbeat/legacy-HEARTBEAT.md"
 assert_contains 'capabilities.json' "$LEGACY/automations/_heartbeat/.gitignore"
 assert_contains 'legacy-HEARTBEAT.md' "$LEGACY/automations/_heartbeat/.gitignore"
 [ "$(sqlite3 "$LEGACY/automations/_heartbeat/.heartbeat.db" 'SELECT output FROM runs WHERE id=1;')" = preserved ] || fail "legacy history lost"
 python3 "$LEGACY/automations/_heartbeat/validate-heartbeat.py" "$LEGACY/automations" >/dev/null
+
+FLAT="$TEST_ROOT/flat"; mkdir -p "$FLAT/automations/.ok/templates" "$FLAT/automations/_heartbeat"
+cp "$SKILL_DIR/templates/AUTOMATION.md.template" "$FLAT/automations/flat-task.md"
+sed -i.bak 's/name: example-automation/name: flat-task/' "$FLAT/automations/flat-task.md"; rm "$FLAT/automations/flat-task.md.bak"
+cp "$SKILL_DIR/templates/AUTOMATION.md.template" "$FLAT/automations/.ok/templates/automation.md"
+printf '%s\n' '# old options' > "$FLAT/automations/AGENT-OPTIONS.md"
+(cd "$FLAT" && PATH="$FAKE_BIN:$PATH" bash "$SKILL_DIR/scripts/init.sh" >/dev/null)
+assert_file "$FLAT/automations/tasks/flat-task.md"
+assert_file "$FLAT/automations/tasks/.ok/templates/automation.md"
+assert_file "$FLAT/automations/_heartbeat/AGENT-OPTIONS.md"
+[ ! -e "$FLAT/automations/flat-task.md" ] || fail "flat task was not migrated"
+[ ! -e "$FLAT/automations/AGENT-OPTIONS.md" ] || fail "flat agent options was not migrated"
 
 CRON_BIN="$TEST_ROOT/cron-bin"; CRON_FILE="$TEST_ROOT/crontab"; mkdir -p "$CRON_BIN"
 printf '%s\n' '#!/usr/bin/env bash' 'if [ "${1:-}" = -l ]; then [ ! -f "$CRON_FILE" ] || cat "$CRON_FILE"; else cp "$1" "$CRON_FILE"; fi' > "$CRON_BIN/crontab"
