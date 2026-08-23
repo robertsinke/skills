@@ -120,7 +120,10 @@ Everyday workflows:
   lock state, validation result, checklist, last run), or
   heartbeat runs list / RUNS.md (history for one project).
 - **Pause/resume**: heartbeat automations pause / resume (aliases for
-  heartbeat schedule disable / enable).
+  heartbeat schedule disable / enable) - a **schedule disable**: cron itself
+  stops firing, as opposed to enabled: false in HEARTBEAT.md, which is a
+  logical disable (cron still fires, the run just no-ops). See Configuration
+  schema below for that distinction.
 - **Remove**: heartbeat automations delete [--purge].
 
 ## Configuration schema
@@ -142,8 +145,10 @@ tasks:                     # required, at least one entry
     prompt: "..."             # required, plain text. Data, not policy.
 ```
 
-Optional top-level enabled: false disables every task without touching
-cron, the registry, or any files.
+Optional top-level enabled: false is a **logical disable**: the checklist
+itself says not to run, while cron keeps firing on schedule and immediately
+no-ops (heartbeat-run.sh exits before validation, no DB row, no agent call).
+Nothing about the registry, cron entry, or any files changes.
 
 Validation runs before every scheduled run (and on demand via
 heartbeat automations show or heartbeat automations edit). A file is
@@ -164,10 +169,10 @@ the checklist itself:
   "permission_mode": "auto|restricted",
   "timeout_seconds": 600
 }
-`
+```
 
-agent has four built-in presets (claude, codex, cursor, opencode) plus auto
-(default - detected from marker files/dirs in the project). Setting
+There are four built-in agent presets (claude, codex, cursor, opencode), plus
+auto (default - detected from marker files/dirs in the project). Setting
 agent_command switches to a generic path that works with ANY coding agent CLI
 that has a scriptable non-interactive mode: the checklist (with the safety
 prefix already prepended) is passed to agent_command as its final argument by
@@ -176,7 +181,7 @@ priority over the agent presets - agent then becomes just a label for
 logging. There is no built-in usage/cost parsing for agent_command or
 opencode today (only claude and codex give structured token/cost data back);
 output and status (ok/alert/error, via exit code and the HEARTBEAT_OK
-sentinel) still work the same for every agent.``
+sentinel) still work the same for every agent.
 
 ## Failure and recovery rules
 
