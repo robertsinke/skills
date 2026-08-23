@@ -18,13 +18,15 @@ PATH via `~/.agents/bin` (add that to your PATH if the script tells you to).
 
 ### heartbeat (`skills/automations/heartbeat`)
 
-Scheduled, local automations for a project - works with whichever coding
-agent CLI (Claude Code, Codex, Cursor) is configured there. Not literally
-filesystem-only: uses a local SQLite file for run history, cron for
-scheduling, and a small global registry file for cross-project discovery.
-No server, no cloud service, no account - no external dependencies beyond
-sh, sqlite3, python3, and git (all present by default on macOS / most Linux
-dev machines).
+Scheduled, local automations for a project - works with any coding agent CLI
+that has a scriptable non-interactive mode, not just Claude Code, Codex, and
+Cursor: those three plus OpenCode are built-in presets, and anything else
+(pi, Kilo, Cline, a future tool) plugs in via agent_command in
+.heartbeat.json. Not literally filesystem-only: uses a local SQLite file for
+run history, cron for scheduling, and a small global registry file for
+cross-project discovery. No server, no cloud service, no account - no
+external dependencies beyond sh, sqlite3, python3, and git (all present by
+default on macOS / most Linux dev machines).
 
 Set up in a project (init + register + schedule enable, composed):
 
