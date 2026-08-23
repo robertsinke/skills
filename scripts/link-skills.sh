@@ -48,7 +48,27 @@ if [ -f "$REPO/skills/voice/talk-to-me/scripts/talk-to-me" ]; then
   echo "linked talk-to-me -> $REPO/skills/voice/talk-to-me/scripts/talk-to-me ($BIN_DEST)"
 fi
 
+# Make sure $BIN_DEST is actually on PATH - not just for this script's shell,
+# but for future terminal sessions - by appending an idempotent export line to
+# the user's shell rc file. This is what makes `heartbeat` and `talk-to-me`
+# work as plain commands instead of needing `bash /path/to/scripts/heartbeat`.
 case ":$PATH:" in
-  *":$BIN_DEST:"*) : ;;
-  *) echo "Note: add $BIN_DEST to your PATH manually, e.g. in ~/.zshrc: export PATH=$BIN_DEST:\$PATH" ;;
+  *":$BIN_DEST:"*)
+    : # already on PATH for this shell
+    ;;
+  *)
+    MARKER="# added by robertsinke/skills scripts/link-skills.sh"
+    LINE="export PATH=\"$BIN_DEST:\$PATH\""
+    case "${SHELL:-}" in
+      */zsh) RC="$HOME/.zshrc" ;;
+      */bash) RC="$HOME/.bashrc" ;;
+      *) RC="$HOME/.profile" ;;
+    esac
+    if [ ! -f "$RC" ] || ! grep -qF "$MARKER" "$RC" 2>/dev/null; then
+      { echo ""; echo "$MARKER"; echo "$LINE"; } >> "$RC"
+      echo "Added $BIN_DEST to PATH in $RC - restart your terminal (or run: source $RC) to use 'heartbeat' and 'talk-to-me' directly."
+    else
+      echo "$BIN_DEST PATH line already present in $RC - restart your terminal (or run: source $RC) if commands aren't found yet."
+    fi
+    ;;
 esac
