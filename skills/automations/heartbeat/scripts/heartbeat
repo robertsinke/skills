@@ -12,9 +12,11 @@ usage() {
 Usage:
   heartbeat automations create
   heartbeat automations list
+  heartbeat automations show [--project <path>]
   heartbeat automations edit
   heartbeat automations pause
   heartbeat automations resume
+  heartbeat automations delete [--purge] [--project <path>]
   heartbeat runs list [--project <path>]
   heartbeat runs show <id>
   heartbeat runs annotate <id> "<note>"
@@ -44,6 +46,46 @@ automations_list() {
   done < "$REGISTRY"
 }
 
+automations_show() {
+  local project="$(pwd)"
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --project) project="$2"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+  local target="$project/automations/heartbeat"
+  if [ ! -d "$target" ]; then
+    echo "No automations/heartbeat/ at $project" >&2
+    exit 1
+  fi
+  echo "Project: $project"
+  if grep -qxF "$project" "$REGISTRY" 2>/dev/null; then
+    echo "Registered: yes"
+  else
+    echo "Registered: no (not in $REGISTRY)"
+  fi
+  if crontab -l 2>/dev/null | grep -qF "$target"; then
+    if crontab -l 2>/dev/null | grep -F "$target" | grep -q "^#"; then
+      echo "Cron: paused"
+    else
+      echo "Cron: active"
+    fi
+  else
+    echo "Cron: not scheduled"
+  fi
+  echo "---- HEARTBEAT.md ----"
+  cat "$target/HEARTBEAT.md" 2>/dev/null || echo "(missing)"
+  echo "---- last run ----"
+  local db="$target/.heartbeat.db"
+  if [ -f "$db" ]; then
+    sqlite3 "$db" ".mode line
+SELECT * FROM runs ORDER BY ts DESC LIMIT 1;"
+  else
+    echo "(no .heartbeat.db yet)"
+  fi
+}
+
 automations_edit() {
   local target="./automations/heartbeat/HEARTBEAT.md"
   if [ ! -f "$target" ]; then
@@ -66,6 +108,42 @@ toggle_cron() {
   crontab "$tmp"
   rm -f "$tmp" "$tmp.bak"
   echo "heartbeat ${mode}d for $target"
+}
+
+automations_delete() {
+  local project="$(pwd)"
+  local purge=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --project) project="$2"; shift 2 ;;
+      --purge) purge=1; shift ;;
+      *) shift ;;
+    esac
+  done
+  local target="$project/automations/heartbeat"
+  if [ ! -d "$target" ]; then
+    echo "No automations/heartbeat/ at $project" >&2
+    exit 1
+  fi
+
+  # Remove the cron entry.
+  local tmp; tmp=$(mktemp)
+  crontab -l 2>/dev/null | grep -vF "$target" > "$tmp" || true
+  crontab "$tmp"
+  rm -f "$tmp"
+
+  # Unregister the project.
+  local tmp2; tmp2=$(mktemp)
+  grep -vxF "$project" "$REGISTRY" > "$tmp2" 2>/dev/null || true
+  mv "$tmp2" "$REGISTRY"
+
+  if [ "$purge" -eq 1 ]; then
+    rm -rf "$target"
+    echo "Deleted cron entry, registry entry, and $target (history is gone)."
+  else
+    echo "Deleted cron entry and registry entry. Files kept at $target (HEARTBEAT.md, RUNS.md, .heartbeat.db)."
+    echo "Pass --purge to also delete those files."
+  fi
 }
 
 runs_list() {
@@ -111,9 +189,11 @@ case "$cmd" in
     case "$sub" in
       create) automations_create ;;
       list) automations_list ;;
+      show) automations_show "$@" ;;
       edit) automations_edit ;;
       pause) toggle_cron pause ;;
       resume) toggle_cron resume ;;
+      delete) automations_delete "$@" ;;
       *) usage; exit 1 ;;
     esac
     ;;
