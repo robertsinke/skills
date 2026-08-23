@@ -18,18 +18,20 @@ Full commands: [reference/CLI.md](reference/CLI.md).
 
 ```text
 automations/
-├── <name>.md             user-owned automation files
+├── tasks/
+│   ├── <name>.md         user-owned automation files
+│   └── .ok/templates/automation.md (or .templates/automation.md)
 ├── DASHBOARD.md          generated status, validation, and next runs
-├── AGENT-OPTIONS.md      generated agents, models, and effort on this computer
 ├── RUNS.md               generated run history
 ├── CONTEXT.md            folder contract
-├── .ok/templates/automation.md (or .templates/automation.md)
-└── _heartbeat/           versioned runtime + ignored local state
+└── _heartbeat/
+    ├── AGENT-OPTIONS.md  generated local agents, models, and effort
+    └── ...               versioned runtime + ignored local state
 ```
 
-`DASHBOARD.md`, `AGENT-OPTIONS.md`, and `RUNS.md` are generated and local.
-Automation files are the only task configuration source. Never hand-edit the
-SQLite database or generated files.
+`DASHBOARD.md`, `RUNS.md`, and `_heartbeat/AGENT-OPTIONS.md` are generated and
+local. Files under `tasks/` are the only task configuration source. Never
+hand-edit the SQLite database or generated files.
 
 ## Automation schema
 
@@ -84,7 +86,7 @@ file/property errors appear in `DASHBOARD.md` and `heartbeat validate` output.
 `heartbeat capabilities refresh` scans installed built-in agent CLIs without
 using a model, checks authentication where the CLI exposes a deterministic
 status command, writes `_heartbeat/capabilities.json`, and generates
-`AGENT-OPTIONS.md`. It refreshes during init, before validation when needed,
+`_heartbeat/AGENT-OPTIONS.md`. It refreshes during init, before validation when needed,
 and at most daily during dispatcher runs.
 
 The scanner distinguishes verified model lists from unavailable discovery.
@@ -134,7 +136,7 @@ heartbeat automations resume       # enable cron
 heartbeat runs list                # per-task history
 ```
 
-`heartbeat init` migrates the previous `HEARTBEAT.md` table into one file per
-row, preserves `.heartbeat.db`, and archives the old checklist under ignored
-`_heartbeat/legacy-HEARTBEAT.md`. Run `register` afterward to refresh AGENTS.md
-and `schedule enable` to refresh the cron path.
+`heartbeat init` migrates both the previous `HEARTBEAT.md` table and flat
+`automations/<name>.md` task files into `automations/tasks/`, preserves
+`.heartbeat.db`, and archives the old checklist under ignored
+`_heartbeat/legacy-HEARTBEAT.md`. Run `register` afterward to refresh AGENTS.md.

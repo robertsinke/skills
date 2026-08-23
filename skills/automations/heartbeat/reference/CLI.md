@@ -24,7 +24,7 @@ heartbeat automations resume
 heartbeat automations delete [--purge] [--project <path>]
 ```
 
-`add` stamps `automations/<name>.md` from the local automation template.
+`add` stamps `automations/tasks/<name>.md` from the local automation template.
 `show` refreshes and prints `DASHBOARD.md`. Default deletion keeps task files
 and history; `--purge` removes heartbeat runtime and generated views, but keeps
 user-authored automation files.
@@ -37,7 +37,8 @@ heartbeat capabilities show
 ```
 
 Refresh deterministically scans installed agent CLIs, writes ignored
-`_heartbeat/capabilities.json`, and regenerates ignored `AGENT-OPTIONS.md`.
+`_heartbeat/capabilities.json`, and regenerates ignored
+`_heartbeat/AGENT-OPTIONS.md`.
 
 ## Runs
 

@@ -34,7 +34,7 @@ Usage:
   heartbeat runs annotate <id> "<note>"
 
   heartbeat capabilities refresh                         # rescan local agents, models, and effort
-  heartbeat capabilities show                            # print AGENT-OPTIONS.md
+  heartbeat capabilities show                            # print _heartbeat/AGENT-OPTIONS.md
 
 Full reference: reference/CLI.md (next to this skill's SKILL.md)
 EOF
@@ -134,7 +134,7 @@ SELECT * FROM runs ORDER BY ts DESC LIMIT 1;"
 automations_add() {
   local name="${1:-}"
   [[ "$name" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]] || { echo "name must be kebab-case" >&2; exit 1; }
-  local target="./automations/$name.md"
+  local target="./automations/tasks/$name.md"
   [ ! -e "$target" ] || { echo "$target already exists" >&2; exit 1; }
   cp "$SKILL_DIR/templates/AUTOMATION.md.template" "$target"
   local title; title=$(echo "$name" | tr '-' ' ')
@@ -144,7 +144,7 @@ automations_add() {
 
 automations_edit() {
   local name="${1:-}"
-  local target="./automations/$name.md"
+  local target="./automations/tasks/$name.md"
   if [ ! -f "$target" ]; then
     echo "No automation named '$name'. Run: heartbeat automations add $name" >&2
     exit 1
@@ -176,7 +176,7 @@ automations_delete() {
   bash "$SKILL_DIR/scripts/unregister.sh" "$project"
   if [ "$purge" -eq 1 ]; then
     rm -rf "$runtime"
-    rm -f "$automations/DASHBOARD.md" "$automations/AGENT-OPTIONS.md" "$automations/RUNS.md" "$automations/.ok/templates/automation.md" "$automations/.templates/automation.md"
+    rm -f "$automations/DASHBOARD.md" "$automations/RUNS.md" "$automations/tasks/.ok/templates/automation.md" "$automations/tasks/.templates/automation.md"
     echo "Deleted cron entry, registry entry, heartbeat files, and $runtime (history is gone)."
   else
     echo "Deleted cron entry and registry entry. Automation files and history remain in $automations."
@@ -203,7 +203,7 @@ SELECT id, date, time, task, agent, model, effort, status, duration_ms||'ms' AS 
 capabilities() {
   case "${1:-show}" in
     refresh) python3 "./automations/_heartbeat/heartbeat_engine.py" scan "./automations" ;;
-    show) cat "./automations/AGENT-OPTIONS.md" ;;
+    show) cat "./automations/_heartbeat/AGENT-OPTIONS.md" ;;
     *) echo "usage: heartbeat capabilities <refresh|show>" >&2; exit 1 ;;
   esac
 }
