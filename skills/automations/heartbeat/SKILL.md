@@ -50,30 +50,45 @@ a single bounded agent CLI invocation, not a persistent service).
 ## Safety invariants
 
 These hold regardless of what a project HEARTBEAT.md says, and must not be
-weakened when editing a project automation:
+weakened when editing a project automation. Read this section as: what is
+actually enforced, versus what is prompt-level guidance the agent is
+expected to follow but that nothing here technically forces.
 
-- **Notify-only by default.** Never enable auto-commit or destructive shell
-  commands from within a heartbeat run without the user explicitly asking.
-- **The safety prefix is non-negotiable and lives in the runner, not the
-  checklist.** heartbeat-run.sh prepends a fixed instruction block to every
-  prompt, before the HEARTBEAT.md content - it blocks destructive commands,
-  unscoped git commits/pushes, reading or transmitting secrets, and
-  installing software. It cannot be overridden by editing HEARTBEAT.md,
-  because HEARTBEAT.md is data (what to check), never policy (what is
-  allowed) - that boundary is the whole point of keeping it in the script.
-- **permission_mode "auto" (default)** lets a run proceed unattended without
-  stalling on approval prompts - required since a cron-triggered run has no
-  human present to click "allow". Safety for this mode comes entirely from
-  the safety prefix above, not from the agent CLIs own permission system.
+- **The safety prefix is a prompt-level guardrail, not a sandboxed
+  enforcement boundary.** heartbeat-run.sh prepends a fixed instruction
+  block to every prompt, before the HEARTBEAT.md content, and it cannot be
+  edited or removed via HEARTBEAT.md - that part is a real, non-negotiable
+  guarantee, because HEARTBEAT.md is data (what to check), never policy
+  (what is allowed). What it is NOT is a technical restriction on what the
+  agent can execute: it only works if the agent reads and follows it. If an
+  agent ignores, misreads, or is prompt-injected around the prefix, nothing
+  here stops it from running a destructive command.
+- **permission_mode "auto" (default) removes the agent CLI's own approval
+  gate entirely** (Claude bypassPermissions, Codex --full-auto, etc.) so a
+  cron-triggered run does not stall waiting for a human who is not there.
+  This means in auto mode there is no technical barrier between the agent
+  and any action at all, beyond the model choosing to follow the safety
+  prefix above. Real enforcement - OS-level sandboxing, restricted file/
+  process permissions, or a runner that inspects and refuses specific
+  commands - is not implemented by this skill today. Treat the safety
+  prefix as reducing risk, not eliminating it.
 - **permission_mode "restricted" is advisory only, not a verified security
-  boundary.** It asks each agent CLI for a read-only-ish mode on a
+  boundary either.** It asks each agent CLI for a read-only-ish mode on a
   best-effort basis (Claude plan mode, Codex --sandbox read-only, Cursor
   --sandbox enabled, OpenCode currently just omits --auto - unverified), but
   exact behavior is CLI- and version-dependent and is not something this
-  skill verifies or enforces. For a custom agent_command, permission_mode has
-  no effect at all - whatever non-interactive/approval flags that tool needs
-  must be included directly in agent_command. Do not tell a user this is a
-  sandbox guarantee - it is a hint to the agent, nothing more.
+  skill verifies or enforces.
+- **agent_command is a trust boundary the user opens explicitly, not an
+  integration this skill verifies.** Setting it means heartbeat execs that
+  exact command from cron, unattended, with the checklist as its input.
+  permission_mode has no effect on it, none of the built-in presets' flags
+  apply, and heartbeat cannot inspect or restrict what that command does.
+  Only point it at something already trusted to run non-interactively and
+  unattended on this machine.
+- **Notify-only by default.** Never enable auto-commit or destructive shell
+  commands from within a heartbeat run without the user explicitly asking -
+  this is a checklist-authoring convention layered on top of the guardrails
+  above, not a substitute for them.
 - **HEARTBEAT.md must pass validation before it is ever used as a prompt.**
   A malformed or empty checklist is data that failed to parse, not an
   instruction to interpret creatively - the run is skipped and logged as
@@ -204,9 +219,14 @@ sentinel) still work the same for every agent.
   time, that run simply does not happen - there is no catch-up/backfill
   mechanism. This is an accepted limitation, not a bug: a catch-up run
   would have to guess how much of the missed interval is still relevant.
-- **Partial run state**: every code path above (skipped, invalid, timeout,
-  error, alert, ok) writes exactly one row to .heartbeat.db, so RUNS.md
-  always reflects what actually happened - a run is never silently dropped.
+- **Partial run state**: every code path that actually evaluates a
+  checklist (skipped, invalid, timeout, error, alert, ok) writes exactly one
+  row to .heartbeat.db, so RUNS.md reflects everything that was attempted.
+  Two states are intentionally silent and write no row: HEARTBEAT.md missing
+  entirely, and enabled: false (the logical disable from Configuration
+  schema) - both mean "nothing was configured to run" rather than a run
+  outcome, so RUNS.md is not spammed every cron tick while intentionally
+  idle.
 - **Recovering from a stuck lock**: heartbeat automations show reports lock
   state (held vs. stale) for a project. A held lock with a dead PID means
   the next scheduled run will reclaim it automatically; nothing manual is
