@@ -47,6 +47,14 @@ sub-minute latency (cron granularity is minutes, and the default schedule is
 every 30 minutes), or a long-running interactive process (a heartbeat run is
 a single bounded agent CLI invocation, not a persistent service).
 
+Only set this up for trusted projects and trusted checklists. permission_mode:
+auto (the default, required for unattended runs) removes the agent CLI's own
+approval gate - see Safety invariants below - so a heartbeat run can take any
+action the agent decides to take, limited only by the agent following the
+safety prefix, not by anything technically enforced. Do not enable it on a
+project, or write a HEARTBEAT.md checklist, you would not trust to run
+unattended with no one reviewing actions before they happen.
+
 ## Safety invariants
 
 These hold regardless of what a project HEARTBEAT.md says, and must not be
