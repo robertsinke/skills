@@ -48,7 +48,7 @@ heartbeat runs show <id>                               # full row for one run
 heartbeat runs annotate <id> "<note>"                  # sanctioned way to edit run history
 ```
 
-See `skills/automations/heartbeat/SKILL.md` for full details.
+Runs are unattended, so `heartbeat-run.sh` enforces a fixed safety prefix (no destructive commands, no unscoped git commits, no reading secrets) that can't be overridden from HEARTBEAT.md, and uses a non-interactive permission mode per agent so runs never stall waiting for approval. See `skills/automations/heartbeat/SKILL.md` for full details.
 
 
 
