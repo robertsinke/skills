@@ -7,6 +7,7 @@ sqlite3 .heartbeat.db <<'SQL' > RUNS.md
 .mode markdown
 .headers on
 SELECT date AS Date, time AS Time, agent AS Agent, model AS Model, effort AS Effort,
+       permission_mode AS Permissions,
        status AS Status, duration_ms || 'ms' AS Duration,
        input_tokens || '/' || output_tokens AS Tokens,
        printf('$%.4f', cost_usd) AS Cost,
