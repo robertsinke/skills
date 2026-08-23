@@ -12,6 +12,17 @@ user's machine. This is deliberately not the browser's built-in Web Speech API:
 that's free and zero-setup, but its recognition backend is typically a cloud
 call to the browser vendor, not an open-source local engine.
 
+
+## If `talk-to-me` isn't on PATH
+
+`scripts/link-skills.sh` symlinks the CLI to `~/.agents/bin/talk-to-me` and adds
+that to PATH via the shell rc file, but a terminal opened before that ran won't
+have it yet. If `talk-to-me` isn't found, call the bundled script directly:
+
+```sh
+bash ~/.claude/skills/talk-to-me/scripts/talk-to-me setup
+```
+
 ## One-time setup
 
 ```sh
