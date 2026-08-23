@@ -48,12 +48,15 @@ every 30 minutes), or a long-running interactive process (a heartbeat run is
 a single bounded agent CLI invocation, not a persistent service).
 
 Only set this up for trusted projects and trusted checklists. permission_mode:
-auto (the default, required for unattended runs) removes the agent CLI's own
-approval gate - see Safety invariants below - so a heartbeat run can take any
-action the agent decides to take, limited only by the agent following the
-safety prefix, not by anything technically enforced. Do not enable it on a
-project, or write a HEARTBEAT.md checklist, you would not trust to run
-unattended with no one reviewing actions before they happen.
+auto (the default, required for unattended runs) removes every agent CLI's
+own approval prompts - see Safety invariants below for what does and does not
+back that up technically. The Claude and Codex presets add real OS-level
+sandboxing of Bash execution on top (workspace + temp dir only, no
+unallowed network), but the workspace itself stays fully writable, and the
+Cursor and OpenCode presets and any agent_command have no such backstop at
+all. Do not enable it on a project, or write a HEARTBEAT.md checklist, you
+would not trust to run unattended with no one reviewing actions before they
+happen.
 
 ## Safety invariants
 
@@ -227,6 +230,15 @@ logging. There is no built-in usage/cost parsing for agent_command or
 opencode today (only claude and codex give structured token/cost data back);
 output and status (ok/alert/error, via exit code and the HEARTBEAT_OK
 sentinel) still work the same for every agent.
+
+If a task needs a command the Claude or Codex sandbox blocks (docker,
+watchman, and similar tools are common cases - see Safety invariants above),
+add an exclusion in the project's own agent config rather than touching
+heartbeat-run.sh: sandbox.excludedCommands / sandbox.filesystem.allowWrite in
+.claude/settings.json or .claude/settings.local.json for Claude (array keys
+merge with heartbeat's --settings override, so this layers on top of it), or
+the equivalent sandbox_workspace_write.writable_roots / network_access keys
+in Codex's config.toml.
 
 ## Failure and recovery rules
 
