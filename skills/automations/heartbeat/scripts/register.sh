@@ -25,15 +25,11 @@ AGENTS_MD="$PROJECT_DIR/AGENTS.md"
 POINTER="## Automation
 Scheduled automation tasks live in automations/tasks/ (overview: automations/DASHBOARD.md, history: automations/RUNS.md; runtime and local agent choices: automations/_heartbeat/)."
 if [ -f "$AGENTS_MD" ]; then
-  if grep -qF "Scheduled checks live under automations/. Current: automations/heartbeat/" "$AGENTS_MD"; then
-    sed -i.bak 's#Scheduled checks live under automations/. Current: automations/heartbeat/ (checklist: HEARTBEAT.md, history: RUNS.md).#Scheduled automation tasks live in automations/tasks/ (overview: automations/DASHBOARD.md, history: automations/RUNS.md; runtime and local agent choices: automations/_heartbeat/).#' "$AGENTS_MD"
-    rm -f "$AGENTS_MD.bak"
-  elif grep -qF "Scheduled checks live in automations/ (checklist: HEARTBEAT.md" "$AGENTS_MD"; then
-    sed -i.bak 's#Scheduled checks live in automations/ (checklist: HEARTBEAT.md, history: RUNS.md; runtime: _heartbeat/).#Scheduled automation tasks live in automations/tasks/ (overview: automations/DASHBOARD.md, history: automations/RUNS.md; runtime and local agent choices: automations/_heartbeat/).#' "$AGENTS_MD"
-    rm -f "$AGENTS_MD.bak"
-  elif grep -qF "Scheduled automations live in automations/ (overview: DASHBOARD.md" "$AGENTS_MD"; then
-    sed -i.bak 's#Scheduled automations live in automations/ (overview: DASHBOARD.md, local agent choices: AGENT-OPTIONS.md, history: RUNS.md; runtime: _heartbeat/).#Scheduled automation tasks live in automations/tasks/ (overview: automations/DASHBOARD.md, history: automations/RUNS.md; runtime and local agent choices: automations/_heartbeat/).#' "$AGENTS_MD"
-    rm -f "$AGENTS_MD.bak"
+  if grep -Eq '^Scheduled (checks live (under|in)|automations live in) automations/' "$AGENTS_MD"; then
+    python3 -c 'from pathlib import Path; import sys
+p=Path(sys.argv[1]); replacement=sys.argv[2]
+lines=[replacement if line.startswith(("Scheduled checks live under automations/", "Scheduled checks live in automations/", "Scheduled automations live in automations/")) else line for line in p.read_text().splitlines()]
+p.write_text("\n".join(lines)+"\n")' "$AGENTS_MD" "${POINTER#*$'\n'}"
   elif ! grep -qF "Scheduled automation tasks live in automations/tasks/" "$AGENTS_MD"; then
     printf "\n%s\n" "$POINTER" >> "$AGENTS_MD"
   fi
