@@ -1,0 +1,226 @@
+#!/usr/bin/env python3
+"""talk-to-me: local, open-source voice I/O for agent sessions.
+
+Text-to-speech via Piper (https://github.com/OHF-Voice/piper1-gpl, GPL-3.0).
+Speech-to-text via Vosk (https://alphacephei.com/vosk, Apache-2.0).
+
+Everything runs on this machine. No account, no API key, no cloud call.
+The CLI itself (this file) has zero dependencies beyond python3 stdlib;
+`talk-to-me setup` creates an isolated venv for the 4 pip packages it needs
+(vosk, piper-tts, sounddevice, numpy) so nothing touches system/global Python.
+"""
+import argparse
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import urllib.request
+import zipfile
+from pathlib import Path
+
+HOME = Path.home()
+CACHE_DIR = Path(os.environ.get("TALK_TO_ME_HOME", str(HOME / ".agents" / "talk-to-me")))
+VENV_DIR = CACHE_DIR / "venv"
+MODELS_DIR = CACHE_DIR / "models"
+
+VOSK_MODEL_NAME = "vosk-model-small-en-us-0.15"
+VOSK_MODEL_DIR = MODELS_DIR / VOSK_MODEL_NAME
+VOSK_MODEL_URL = f"https://alphacephei.com/vosk/models/{VOSK_MODEL_NAME}.zip"
+
+PIPER_VOICE = os.environ.get("TALK_TO_ME_VOICE", "en_US-lessac-medium")
+PIPER_VOICE_BASE = "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium"
+PIPER_ONNX = MODELS_DIR / f"{PIPER_VOICE}.onnx"
+PIPER_JSON = MODELS_DIR / f"{PIPER_VOICE}.onnx.json"
+
+
+def venv_python():
+    return VENV_DIR / ("Scripts/python.exe" if os.name == "nt" else "bin/python3")
+
+
+def venv_bin(name):
+    return VENV_DIR / ("Scripts" if os.name == "nt" else "bin") / name
+
+
+def find_system_python():
+    for candidate in ("python3.12", "python3.11", "python3.10", "python3"):
+        path = shutil.which(candidate)
+        if path:
+            return path
+    sys.exit("talk-to-me: no python3 found on PATH")
+
+
+def run(cmd, **kw):
+    return subprocess.run(cmd, check=True, **kw)
+
+
+def download(url, dest):
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    print(f"downloading {url}")
+    urllib.request.urlretrieve(url, dest)
+
+
+def cmd_setup(args):
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    if not venv_python().exists():
+        print(f"creating venv at {VENV_DIR}")
+        run([find_system_python(), "-m", "venv", str(VENV_DIR)])
+    print("installing vosk, piper-tts, sounddevice, numpy (isolated venv, not system python)")
+    run([str(venv_python()), "-m", "pip", "install", "--quiet", "--upgrade", "pip"])
+    run([str(venv_python()), "-m", "pip", "install", "--quiet", "vosk", "piper-tts", "sounddevice", "numpy"])
+
+    if not VOSK_MODEL_DIR.exists():
+        zpath = MODELS_DIR / f"{VOSK_MODEL_NAME}.zip"
+        download(VOSK_MODEL_URL, zpath)
+        print("extracting vosk model")
+        with zipfile.ZipFile(zpath) as zf:
+            zf.extractall(MODELS_DIR)
+        zpath.unlink()
+    else:
+        print("vosk model already present")
+
+    if not PIPER_ONNX.exists():
+        download(f"{PIPER_VOICE_BASE}/{PIPER_VOICE}.onnx", PIPER_ONNX)
+    if not PIPER_JSON.exists():
+        download(f"{PIPER_VOICE_BASE}/{PIPER_VOICE}.onnx.json", PIPER_JSON)
+
+    print("talk-to-me setup complete.")
+    print(f"  venv:      {VENV_DIR}")
+    print(f"  stt model: {VOSK_MODEL_DIR}")
+    print(f"  tts voice: {PIPER_ONNX}")
+    print('Run `talk-to-me status` to verify, or `talk-to-me say "hello"` to test.')
+
+
+def cmd_status(args):
+    ok = True
+
+    def check(label, cond):
+        nonlocal ok
+        print(f"  [{'ok' if cond else 'MISSING'}] {label}")
+        ok = ok and cond
+
+    check("venv", venv_python().exists())
+    check("vosk stt model", VOSK_MODEL_DIR.exists())
+    check("piper tts voice", PIPER_ONNX.exists() and PIPER_JSON.exists())
+    if not ok:
+        print("\nRun `talk-to-me setup` to fix.")
+    else:
+        print("\nready.")
+
+
+def require_setup():
+    if not venv_python().exists() or not VOSK_MODEL_DIR.exists() or not PIPER_ONNX.exists():
+        sys.exit("talk-to-me: not set up yet. Run `talk-to-me setup` first.")
+
+
+def play_audio(wav_path):
+    if shutil.which("afplay"):
+        run(["afplay", str(wav_path)])
+    elif shutil.which("paplay"):
+        run(["paplay", str(wav_path)])
+    elif shutil.which("aplay"):
+        run(["aplay", "-q", str(wav_path)])
+    else:
+        sys.exit("talk-to-me: no audio player found (afplay/paplay/aplay)")
+
+
+def cmd_say(args):
+    require_setup()
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+        wav_path = Path(tmp.name)
+    try:
+        subprocess.run(
+            [str(venv_bin("piper")), "--model", str(PIPER_ONNX), "--output_file", str(wav_path)],
+            input=args.text, text=True, check=True,
+        )
+        play_audio(wav_path)
+    finally:
+        wav_path.unlink(missing_ok=True)
+
+
+LISTEN_SCRIPT = """
+import sys, json, queue
+import numpy as np
+import sounddevice as sd
+from vosk import Model, KaldiRecognizer
+
+SAMPLE_RATE = 16000
+BLOCKSIZE = 4000
+SILENCE_SECONDS = {silence}
+MAX_SECONDS = {max_seconds}
+
+model = Model("{model_dir}")
+rec = KaldiRecognizer(model, SAMPLE_RATE)
+
+q = queue.Queue()
+
+
+def cb(indata, frames, time_info, status):
+    q.put(bytes(indata))
+
+
+chunks_per_second = SAMPLE_RATE / BLOCKSIZE
+silence_limit = SILENCE_SECONDS * chunks_per_second
+max_chunks = MAX_SECONDS * chunks_per_second
+speaking_started = False
+silence_chunks = 0
+n = 0
+
+with sd.RawInputStream(samplerate=SAMPLE_RATE, blocksize=BLOCKSIZE, dtype="int16", channels=1, callback=cb):
+    print("listening...", file=sys.stderr)
+    while True:
+        data = q.get()
+        n += 1
+        arr = np.frombuffer(data, dtype=np.int16)
+        rms = np.sqrt(np.mean(arr.astype(np.float32) ** 2)) if len(arr) else 0
+        rec.AcceptWaveform(data)
+        if rms > 300:
+            speaking_started = True
+            silence_chunks = 0
+        elif speaking_started:
+            silence_chunks += 1
+        if n >= max_chunks:
+            break
+        if speaking_started and silence_chunks >= silence_limit:
+            break
+
+result = json.loads(rec.FinalResult())
+print(result.get("text", ""))
+"""
+
+
+def cmd_listen(args):
+    require_setup()
+    script = LISTEN_SCRIPT.format(
+        silence=args.silence, max_seconds=args.max_seconds, model_dir=str(VOSK_MODEL_DIR)
+    )
+    result = subprocess.run([str(venv_python()), "-c", script], capture_output=True, text=True)
+    if result.returncode != 0:
+        sys.exit(f"talk-to-me: listen failed:\n{result.stderr}")
+    lines = [l for l in result.stdout.splitlines() if l.strip()]
+    print(lines[-1] if lines else "")
+
+
+def main():
+    parser = argparse.ArgumentParser(prog="talk-to-me")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    sub.add_parser("setup", help="install deps + download default voice/model (one-time)").set_defaults(func=cmd_setup)
+    sub.add_parser("status", help="check whether setup is complete").set_defaults(func=cmd_status)
+
+    p_say = sub.add_parser("say", help="speak text out loud (TTS)")
+    p_say.add_argument("text")
+    p_say.set_defaults(func=cmd_say)
+
+    p_listen = sub.add_parser("listen", help="record mic + transcribe speech (STT); prints transcript to stdout")
+    p_listen.add_argument("--silence", type=float, default=1.2, help="seconds of silence that ends recording")
+    p_listen.add_argument("--max-seconds", type=float, default=30, dest="max_seconds")
+    p_listen.set_defaults(func=cmd_listen)
+
+    args = parser.parse_args()
+    args.func(args)
+
+
+if __name__ == "__main__":
+    main()
