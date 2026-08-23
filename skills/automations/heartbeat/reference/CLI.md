@@ -9,9 +9,12 @@ scripts/, so nothing is duplicated between the CLI and what actually runs.
 
 ```sh
 heartbeat init                 # scaffold automations/heartbeat/ in the current project
-                                #   creates: HEARTBEAT.md (from template, if missing),
-                                #   .heartbeat.db, heartbeat-run.sh, heartbeat-report.sh,
-                                #   validate-heartbeat.py
+                                #   creates: HEARTBEAT.md and RUNS.md (from templates,
+                                #   if missing), .heartbeat.db, heartbeat-run.sh,
+                                #   heartbeat-report.sh, validate-heartbeat.py
+                                #   templates: automations/heartbeat/.ok/templates/ when
+                                #   the repository already uses OpenKnowledge; otherwise
+                                #   automations/heartbeat/.templates/
                                 #   side effects: files only. no cron, no registry, no AGENTS.md edit.
 
 heartbeat register             # add the current project to ~/.agents/heartbeat/registry.txt
