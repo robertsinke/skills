@@ -53,6 +53,7 @@ assert_contains "model 'missing-model' is not available for cursor" "$TEST_ROOT/
 rm "$INVALID"
 
 LEGACY="$TEST_ROOT/legacy"; mkdir -p "$LEGACY/automations/_heartbeat" "$LEGACY/.ok/templates"
+printf '%s\n' '.heartbeat.db' '.heartbeat.lock/' > "$LEGACY/automations/_heartbeat/.gitignore"
 printf '%s\n' '---' 'title: Heartbeat runs' 'generated: true' '---' '' '# Heartbeat runs' > "$LEGACY/automations/RUNS.md"
 printf '%s\n' \
   '---' 'title: Heartbeat' 'enabled: true' '---' '' '# Heartbeat' '' \
@@ -64,6 +65,8 @@ sqlite3 "$LEGACY/automations/_heartbeat/.heartbeat.db" 'CREATE TABLE runs (id IN
 assert_file "$LEGACY/automations/daily-briefing.md"
 assert_file "$LEGACY/automations/dead-links.md"
 assert_file "$LEGACY/automations/_heartbeat/legacy-HEARTBEAT.md"
+assert_contains 'capabilities.json' "$LEGACY/automations/_heartbeat/.gitignore"
+assert_contains 'legacy-HEARTBEAT.md' "$LEGACY/automations/_heartbeat/.gitignore"
 [ "$(sqlite3 "$LEGACY/automations/_heartbeat/.heartbeat.db" 'SELECT output FROM runs WHERE id=1;')" = preserved ] || fail "legacy history lost"
 python3 "$LEGACY/automations/_heartbeat/validate-heartbeat.py" "$LEGACY/automations" >/dev/null
 
