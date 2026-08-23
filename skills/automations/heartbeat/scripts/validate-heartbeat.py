@@ -4,8 +4,10 @@
 Schema (deliberately small, not general YAML):
   A `tasks:` line introduces a list. Each task is a `  - name: ...` block
   with at least `name:` and `prompt:` fields (`interval:` is recommended,
-  warned about if missing, but not fatal). An optional top-level
-  `enabled: false` disables every task without touching cron or files.
+  warned about if missing, but not fatal). `name` must be kebab-case
+  (lowercase letters, digits, single hyphens - checked, not just a naming
+  convention) and unique. An optional top-level `enabled: false` disables
+  every task without touching cron or files.
 
 This exists so a malformed or empty HEARTBEAT.md can never silently become
 the agent prompt for an unattended run - see SKILL.md, Safety invariants.
@@ -19,6 +21,8 @@ Usage: validate-heartbeat.py <path>
 """
 import re
 import sys
+
+KEBAB_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 
 
 def parse_tasks(lines, start):
@@ -81,6 +85,11 @@ def main():
             fatal.append(f"{label}: missing required 'name'")
         elif t["name"] in seen_names:
             fatal.append(f"duplicate task name: {t['name']}")
+        elif not KEBAB_RE.match(t["name"]):
+            fatal.append(
+                f"{label}: name must be kebab-case (lowercase letters, digits, "
+                f"single hyphens, no leading/trailing hyphen): got '{t['name']}'"
+            )
         else:
             seen_names.add(t["name"])
         if not t.get("prompt"):
