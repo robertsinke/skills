@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 # heartbeat-run.sh
-# Expected to run with cwd = automations/heartbeat/ inside the target project.
+# Expected to run with cwd = automations/_heartbeat/ inside the target project.
 set -uo pipefail
 
-[ -f HEARTBEAT.md ] || exit 0
+AUTOMATIONS_DIR="$(cd .. && pwd)"
+HEARTBEAT_FILE="$AUTOMATIONS_DIR/HEARTBEAT.md"
+
+[ -f "$HEARTBEAT_FILE" ] || exit 0
 
 PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || (cd ../.. && pwd))"
 
@@ -36,7 +39,7 @@ trap 'rm -rf "$LOCK_DIR"' EXIT
 # ---- HEARTBEAT.md validation ----
 # A malformed or empty checklist must never become the agent prompt for an
 # unattended run - see validate-heartbeat.py and SKILL.md Safety invariants.
-if ! VALIDATION_OUT=$(python3 ./validate-heartbeat.py HEARTBEAT.md 2>&1); then
+if ! VALIDATION_OUT=$(python3 ./validate-heartbeat.py "$HEARTBEAT_FILE" 2>&1); then
   log_row invalid "$VALIDATION_OUT"
   exit 0
 fi
@@ -44,7 +47,7 @@ fi
 # Optional top-level `enabled: false` disables every task without touching
 # cron or files. Exit silently (no DB row) so RUNS.md is not spammed while
 # intentionally disabled - same treatment as the missing-file early exit above.
-grep -qE '^enabled:[[:space:]]*false[[:space:]]*$' HEARTBEAT.md && exit 0
+grep -qE '^enabled:[[:space:]]*false[[:space:]]*$' "$HEARTBEAT_FILE" && exit 0
 
 read_cfg() {
   # read_cfg <key> <default>
@@ -104,7 +107,7 @@ Reply with exactly HEARTBEAT_OK (nothing else) if nothing needs attention.
 Checklist:
 "
 
-CHECKLIST="${SAFETY_PREFIX}$(cat HEARTBEAT.md)"
+CHECKLIST="${SAFETY_PREFIX}$(cat "$HEARTBEAT_FILE")"
 BEFORE=$(git -C "$PROJECT_ROOT" rev-parse HEAD 2>/dev/null || echo none)
 START=$(date +%s%3N)
 

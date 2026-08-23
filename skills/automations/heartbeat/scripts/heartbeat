@@ -15,7 +15,7 @@ touch "$REGISTRY"
 usage() {
   cat <<'EOF'
 Usage:
-  heartbeat init                                      # scaffold automations/heartbeat/ (files only)
+  heartbeat init                                      # scaffold automations/ + _heartbeat/ (files only)
   heartbeat register                                   # add this project to the registry + AGENTS.md pointer
   heartbeat unregister                                 # remove this project from the registry
   heartbeat schedule enable                             # add this project's cron entry
@@ -63,8 +63,8 @@ automations_list() {
     return
   fi
   while IFS= read -r p; do
-    [ -d "$p/automations/heartbeat" ] || continue
-    local db="$p/automations/heartbeat/.heartbeat.db"
+    [ -d "$p/automations/_heartbeat" ] || continue
+    local db="$p/automations/_heartbeat/.heartbeat.db"
     local last="(no runs yet)"
     if [ -f "$db" ]; then
       last=$(sqlite3 "$db" "SELECT date || ' ' || time || ' - ' || status FROM runs ORDER BY ts DESC LIMIT 1;" 2>/dev/null)
@@ -82,9 +82,10 @@ automations_show() {
       *) shift ;;
     esac
   done
-  local target="$project/automations/heartbeat"
-  if [ ! -d "$target" ]; then
-    echo "No automations/heartbeat/ at $project" >&2
+  local automations="$project/automations"
+  local runtime="$automations/_heartbeat"
+  if [ ! -d "$runtime" ]; then
+    echo "No automations/_heartbeat/ at $project" >&2
     exit 1
   fi
   echo "Project: $project"
@@ -93,8 +94,8 @@ automations_show() {
   else
     echo "Registered: no (not in $REGISTRY - run: heartbeat register)"
   fi
-  if crontab -l 2>/dev/null | grep -qF "$target"; then
-    if crontab -l 2>/dev/null | grep -F "$target" | grep -q "^#"; then
+  if crontab -l 2>/dev/null | grep -qF "$runtime"; then
+    if crontab -l 2>/dev/null | grep -F "$runtime" | grep -q "^#"; then
       echo "Schedule: disabled"
     else
       echo "Schedule: enabled"
@@ -102,8 +103,8 @@ automations_show() {
   else
     echo "Schedule: not scheduled (run: heartbeat schedule enable)"
   fi
-  if [ -f "$target/.heartbeat.lock/pid" ]; then
-    local lock_pid; lock_pid=$(cat "$target/.heartbeat.lock/pid" 2>/dev/null)
+  if [ -f "$runtime/.heartbeat.lock/pid" ]; then
+    local lock_pid; lock_pid=$(cat "$runtime/.heartbeat.lock/pid" 2>/dev/null)
     if kill -0 "$lock_pid" 2>/dev/null; then
       echo "Lock: held (pid $lock_pid - a run is in progress)"
     else
@@ -111,11 +112,11 @@ automations_show() {
     fi
   fi
   echo "---- HEARTBEAT.md validation ----"
-  python3 "$target/validate-heartbeat.py" "$target/HEARTBEAT.md" 2>&1 || true
+  python3 "$runtime/validate-heartbeat.py" "$automations/HEARTBEAT.md" 2>&1 || true
   echo "---- HEARTBEAT.md ----"
-  cat "$target/HEARTBEAT.md" 2>/dev/null || echo "(missing)"
+  cat "$automations/HEARTBEAT.md" 2>/dev/null || echo "(missing)"
   echo "---- last run ----"
-  local db="$target/.heartbeat.db"
+  local db="$runtime/.heartbeat.db"
   if [ -f "$db" ]; then
     sqlite3 "$db" ".mode line
 SELECT * FROM runs ORDER BY ts DESC LIMIT 1;"
@@ -125,13 +126,13 @@ SELECT * FROM runs ORDER BY ts DESC LIMIT 1;"
 }
 
 automations_edit() {
-  local target="./automations/heartbeat/HEARTBEAT.md"
+  local target="./automations/HEARTBEAT.md"
   if [ ! -f "$target" ]; then
-    echo "No automations/heartbeat/HEARTBEAT.md here. Run: heartbeat automations create (first)." >&2
+    echo "No automations/HEARTBEAT.md here. Run: heartbeat automations create (first)." >&2
     exit 1
   fi
   "${EDITOR:-vi}" "$target"
-  python3 "./automations/heartbeat/validate-heartbeat.py" "$target" || {
+  python3 "./automations/_heartbeat/validate-heartbeat.py" "$target" || {
     echo "warning: HEARTBEAT.md does not pass validation - runs will be logged as status=invalid and skipped until fixed" >&2
   }
 }
@@ -146,18 +147,20 @@ automations_delete() {
       *) shift ;;
     esac
   done
-  local target="$project/automations/heartbeat"
-  if [ ! -d "$target" ]; then
-    echo "No automations/heartbeat/ at $project" >&2
+  local automations="$project/automations"
+  local runtime="$automations/_heartbeat"
+  if [ ! -d "$runtime" ]; then
+    echo "No automations/_heartbeat/ at $project" >&2
     exit 1
   fi
   ( cd "$project" && "$SKILL_DIR/scripts/schedule.sh" disable ) || true
   "$SKILL_DIR/scripts/unregister.sh" "$project"
   if [ "$purge" -eq 1 ]; then
-    rm -rf "$target"
-    echo "Deleted cron entry, registry entry, and $target (history is gone)."
+    rm -rf "$runtime"
+    rm -f "$automations/HEARTBEAT.md" "$automations/RUNS.md" "$automations/.ok/templates/heartbeat.md" "$automations/.templates/heartbeat.md"
+    echo "Deleted cron entry, registry entry, heartbeat files, and $runtime (history is gone)."
   else
-    echo "Deleted cron entry and registry entry. Files kept at $target (HEARTBEAT.md, RUNS.md, .heartbeat.db)."
+    echo "Deleted cron entry and registry entry. Files kept in $automations (HEARTBEAT.md, RUNS.md, _heartbeat/.heartbeat.db)."
     echo "Pass --purge to also delete those files."
   fi
 }
@@ -170,7 +173,7 @@ runs_list() {
       *) shift ;;
     esac
   done
-  local db="$project/automations/heartbeat/.heartbeat.db"
+  local db="$project/automations/_heartbeat/.heartbeat.db"
   if [ ! -f "$db" ]; then echo "No .heartbeat.db at $db" >&2; exit 1; fi
   sqlite3 "$db" ".mode markdown
 .headers on
@@ -179,7 +182,7 @@ SELECT id, date, time, agent, permission_mode, status, duration_ms||'ms' AS dura
 
 runs_show() {
   local id="$1"
-  local db="./automations/heartbeat/.heartbeat.db"
+  local db="./automations/_heartbeat/.heartbeat.db"
   if [ ! -f "$db" ]; then echo "No .heartbeat.db here" >&2; exit 1; fi
   sqlite3 "$db" ".mode line
 SELECT * FROM runs WHERE id = $id;"
@@ -188,7 +191,7 @@ SELECT * FROM runs WHERE id = $id;"
 runs_annotate() {
   local id="$1"
   local note="$2"
-  local db="./automations/heartbeat/.heartbeat.db"
+  local db="./automations/_heartbeat/.heartbeat.db"
   if [ ! -f "$db" ]; then echo "No .heartbeat.db here" >&2; exit 1; fi
   local note_json
   note_json=$(python3 -c "import json,sys;print(json.dumps(sys.argv[1]))" "$note")

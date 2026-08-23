@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # heartbeat-report.sh
-# Expected to run with cwd = automations/heartbeat/
+# Expected to run with cwd = automations/_heartbeat/
 set -euo pipefail
 
+AUTOMATIONS_DIR="$(cd .. && pwd)"
+RUNS_FILE="$AUTOMATIONS_DIR/RUNS.md"
+
 FRONTMATTER_SOURCE=""
-for candidate in RUNS.md .ok/templates/runs.md .templates/runs.md; do
-  if [ -f "$candidate" ] && [ "$(head -n 1 "$candidate")" = "---" ]; then
-    FRONTMATTER_SOURCE="$candidate"
-    break
-  fi
-done
+if [ -f "$RUNS_FILE" ] && [ "$(head -n 1 "$RUNS_FILE")" = "---" ]; then
+  FRONTMATTER_SOURCE="$RUNS_FILE"
+fi
 
 REPORT_TMP="$(mktemp)"
 trap 'rm -f "$REPORT_TMP"' EXIT
@@ -43,5 +43,5 @@ FROM runs ORDER BY ts DESC LIMIT 50;
 SQL
 } > "$REPORT_TMP"
 
-mv "$REPORT_TMP" RUNS.md
+mv "$REPORT_TMP" "$RUNS_FILE"
 trap - EXIT

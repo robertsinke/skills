@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # unregister.sh - remove the current (or --project) project from the global
 # registry so it stops showing up in `heartbeat automations list`.
-# Does not touch AGENTS.md or any files under automations/heartbeat/ - those
+# Does not touch AGENTS.md or any files under automations/ - those
 # are handled by `heartbeat init` (create) and `--purge` (delete).
 set -euo pipefail
 

@@ -131,7 +131,7 @@ expected to follow but that nothing here technically forces.
   delete only unregisters and disables the schedule; --purge is required to
   delete HEARTBEAT.md, RUNS.md, or .heartbeat.db, and only when the user
   explicitly wants that.
-- Never hand-edit .heartbeat.db or the generated body of RUNS.md. RUNS.md
+- Never hand-edit `automations/_heartbeat/.heartbeat.db` or the generated body of RUNS.md. RUNS.md
   frontmatter may be customized and is preserved when the body regenerates.
   The only sanctioned way to annotate history is
   heartbeat runs annotate <id> "<note>".
@@ -147,13 +147,17 @@ heartbeat automations create
 
 which runs, in order:
 
-1. **init** - scaffold automations/heartbeat/ (HEARTBEAT.md and RUNS.md from
-   templates, .heartbeat.db, and copies of heartbeat-run.sh,
-   heartbeat-report.sh, validate-heartbeat.py). It also creates a local hidden
-   template library: `automations/heartbeat/.ok/templates/` when the project
-   already uses OpenKnowledge templates anywhere in the repository, otherwise
-   `automations/heartbeat/.templates/`. Files only - nothing is scheduled or
-   discoverable yet.
+1. **init** - scaffold the human interface in `automations/` (`CONTEXT.md`,
+   `HEARTBEAT.md`, and generated `RUNS.md`) and runtime infrastructure in
+   `automations/_heartbeat/` (`.heartbeat.db`, runner, reporter, and validator).
+   It creates `automations/.ok/frontmatter.yml` plus
+   `automations/.ok/templates/heartbeat.md` when the repository already uses
+   OpenKnowledge templates anywhere, otherwise
+   `automations/.templates/heartbeat.md`. `RUNS.md` is intentionally not a
+   template because generated history is not a stampable record. Existing
+   `automations/heartbeat/` installations are migrated during init; run
+   `register` and `schedule enable` afterward to refresh the AGENTS.md pointer
+   and cron path. Files only - nothing is scheduled or registered by init.
 2. **register** - add the project to ~/.agents/heartbeat/registry.txt (so
    heartbeat automations list finds it) and append an "## Automation"
    pointer to the project AGENTS.md.
@@ -224,7 +228,7 @@ RUNS.md is generated with YAML frontmatter and a Markdown table. Its body is
 rewritten after each run; its existing frontmatter is preserved. Never edit
 its generated body by hand.
 
-.heartbeat.json (optional, same directory) overrides runtime behavior, not
+`.heartbeat.json` (optional, in `automations/_heartbeat/`) overrides runtime behavior, not
 the checklist itself:
 
 ```
@@ -262,8 +266,9 @@ in Codex's config.toml.
 
 ## Failure and recovery rules
 
-- **Duplicate execution**: heartbeat-run.sh takes a lock (a .heartbeat.lock/
-  directory, created with mkdir for an atomic, dependency-free lock) before
+- **Duplicate execution**: heartbeat-run.sh takes a lock in
+  `automations/_heartbeat/.heartbeat.lock/` (created with mkdir for an atomic,
+  dependency-free lock) before
   doing anything else. If cron fires while a previous run is still going,
   the new run logs status=skipped and exits immediately rather than running
   concurrently. If the lock owner process is no longer alive (a crashed or
@@ -289,7 +294,7 @@ in Codex's config.toml.
   would have to guess how much of the missed interval is still relevant.
 - **Partial run state**: every code path that actually evaluates a
   checklist (skipped, invalid, timeout, error, alert, ok) writes exactly one
-  row to .heartbeat.db, so RUNS.md reflects everything that was attempted.
+  row to `automations/_heartbeat/.heartbeat.db`, so RUNS.md reflects everything that was attempted.
   Two states are intentionally silent and write no row: HEARTBEAT.md missing
   entirely, and enabled: false (the logical disable from Configuration
   schema) - both mean "nothing was configured to run" rather than a run
@@ -298,7 +303,7 @@ in Codex's config.toml.
 - **Recovering from a stuck lock**: heartbeat automations show reports lock
   state (held vs. stale) for a project. A held lock with a dead PID means
   the next scheduled run will reclaim it automatically; nothing manual is
-  needed. Only intervene by hand (rm -rf automations/heartbeat/.heartbeat.lock)
+  needed. Only intervene by hand (remove `automations/_heartbeat/.heartbeat.lock`)
   if a genuinely stuck process needs to be cleared before the next cron tick.
 
 ## CLI reference

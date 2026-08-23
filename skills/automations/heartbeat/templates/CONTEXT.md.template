@@ -1,0 +1,12 @@
+# Automations
+
+Scheduled checks for this project.
+
+## Human interface
+
+- `HEARTBEAT.md` — editable checklist and intervals
+- `RUNS.md` — generated run history
+
+## Runtime
+
+`_heartbeat/` contains the local scheduler, validator, SQLite history, and lock state. Treat it as infrastructure; use the heartbeat CLI instead of editing it directly.
