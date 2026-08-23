@@ -1,6 +1,6 @@
 ---
 name: heartbeat
-description: "Set up and manage scheduled local automations (checks that run on a timer) for the current project - local-only (no cloud service, no account), works with Claude Code, Codex, or Cursor. Use when the user asks to add a recurring/periodic check, review past automation runs, or edit what a project checks automatically."
+description: "Set up and manage scheduled local automations (checks that run on a timer) for the current project - local-only (no cloud service, no account), works with any coding agent CLI that has a scriptable non-interactive mode (built-in presets for Claude Code, Codex, Cursor, and OpenCode; anything else via a generic agent_command). Use when the user asks to add a recurring/periodic check, review past automation runs, or edit what a project checks automatically."
 ---
 
 # Heartbeat
@@ -8,8 +8,16 @@ description: "Set up and manage scheduled local automations (checks that run on 
 Scheduled, local checks for a project. This is not literally "filesystem-only":
 it uses a local SQLite file for run history, cron for scheduling, a small
 global registry file for cross-project discovery, and whichever coding agent
-CLI (Claude Code, Codex, Cursor) is configured in the target project. What it
-does not use: a server, a cloud service or database, or an account.
+CLI is configured in the target project. What it does not use: a server, a
+cloud service or database, or an account.
+
+Not confined to any one agent. Built-in presets exist for Claude Code, Codex,
+Cursor, and OpenCode - anything else (pi, Kilo, Cline, a future tool, an
+internal one) plugs in via agent_command in .heartbeat.json, as long as it has
+some scriptable, non-interactive, prompt-in/text-out mode. See Configuration
+schema below. Note: some agents (e.g. Cline, Kilo Code as of writing) are
+primarily IDE extensions without an official standalone non-interactive CLI -
+those cannot be wired into an unattended cron run until/unless they ship one.
 
 This skill ships a CLI (heartbeat) for every mechanical/deterministic step.
 Use the CLI for anything it covers; only hand-edit HEARTBEAT.md, or read
@@ -62,9 +70,12 @@ weakened when editing a project automation:
 - **permission_mode "restricted" is advisory only, not a verified security
   boundary.** It asks each agent CLI for a read-only-ish mode on a
   best-effort basis (Claude plan mode, Codex --sandbox read-only, Cursor
-  --sandbox enabled), but exact behavior is CLI- and version-dependent and
-  is not something this skill verifies or enforces. Do not tell a user this
-  is a sandbox guarantee - it is a hint to the agent, nothing more.
+  --sandbox enabled, OpenCode currently just omits --auto - unverified), but
+  exact behavior is CLI- and version-dependent and is not something this
+  skill verifies or enforces. For a custom agent_command, permission_mode has
+  no effect at all - whatever non-interactive/approval flags that tool needs
+  must be included directly in agent_command. Do not tell a user this is a
+  sandbox guarantee - it is a hint to the agent, nothing more.
 - **HEARTBEAT.md must pass validation before it is ever used as a prompt.**
   A malformed or empty checklist is data that failed to parse, not an
   instruction to interpret creatively - the run is skipped and logged as
@@ -147,13 +158,27 @@ the checklist itself:
 
 ```
 {
-  "agent": "claude|codex|cursor",
+  "agent": "claude|codex|cursor|opencode|auto",
+  "agent_command": "opencode run --auto",
+  "agent_input": "arg|stdin",
   "model": "...",
   "effort": "...",
   "permission_mode": "auto|restricted",
   "timeout_seconds": 600
 }
-```
+`
+
+agent has four built-in presets (claude, codex, cursor, opencode) plus auto
+(default - detected from marker files/dirs in the project). Setting
+agent_command switches to a generic path that works with ANY coding agent CLI
+that has a scriptable non-interactive mode: the checklist (with the safety
+prefix already prepended) is passed to agent_command as its final argument by
+default, or piped via stdin if agent_input is "stdin". agent_command takes
+priority over the agent presets - agent then becomes just a label for
+logging. There is no built-in usage/cost parsing for agent_command or
+opencode today (only claude and codex give structured token/cost data back);
+output and status (ok/alert/error, via exit code and the HEARTBEAT_OK
+sentinel) still work the same for every agent.``
 
 ## Failure and recovery rules
 
