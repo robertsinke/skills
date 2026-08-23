@@ -9,6 +9,18 @@ Scheduled, filesystem-only checks for a project. No server, no database beyond a
 local SQLite file, works with whichever coding agent CLI is configured in the
 target project.
 
+
+## If `heartbeat` isn't on PATH
+
+`scripts/link-skills.sh` symlinks the CLI to `~/.agents/bin/heartbeat` and adds
+that to PATH via the shell rc file, but a terminal opened before that ran won't
+have it yet. If `heartbeat` isn't found, call the bundled script directly - it
+works the same either way, no PATH needed:
+
+```sh
+bash ~/.claude/skills/heartbeat/scripts/heartbeat automations create
+```
+
 This skill ships a CLI (`heartbeat`) for the mechanical parts. Use the CLI for
 anything deterministic; only hand-edit HEARTBEAT.md or read RUNS.md yourself when
 the action requires understanding what the user actually wants.
