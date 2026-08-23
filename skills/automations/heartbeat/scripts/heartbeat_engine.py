@@ -220,20 +220,37 @@ def run_capture(args: list[str], timeout=8) -> tuple[int, str]:
         return 1, str(exc)
 
 
+def find_command(command: str, previous: str | None = None) -> str | None:
+    candidates = [
+        shutil.which(command),
+        previous,
+        *(str(path / command) for path in (
+            Path.home() / ".local/bin",
+            Path.home() / ".npm-global/bin",
+            Path.home() / ".opencode/bin",
+            Path.home() / ".agents/bin",
+            Path("/opt/homebrew/bin"),
+            Path("/usr/local/bin"),
+        )),
+    ]
+    return next((candidate for candidate in candidates if candidate and os.access(candidate, os.X_OK)), None)
+
+
 def scan_capabilities(automations: Path) -> dict:
+    previous = load_capabilities(automations).get("agents", {})
     agents = {}
     for name, command in COMMANDS.items():
-        path = shutil.which(command)
+        path = find_command(command, previous.get(name, {}).get("path"))
         info = {"installed": bool(path), "path": path, "version": None, "models": [], "models_status": "unavailable", "efforts": sorted(EFFORTS[name])}
         if path:
-            _, info["version"] = run_capture([command, "--version"])
+            _, info["version"] = run_capture([path, "--version"])
             if name == "cursor":
-                code, output = run_capture([command, "models"], 15)
+                code, output = run_capture([path, "models"], 15)
                 if code == 0:
                     info["models"] = sorted({line.strip().split()[0] for line in output.splitlines() if line.strip() and not line.startswith(("Available", "Model"))})
                     info["models_status"] = "verified"
             elif name == "opencode":
-                code, output = run_capture([command, "models"], 15)
+                code, output = run_capture([path, "models"], 15)
                 if code == 0:
                     info["models"] = sorted({line.strip() for line in output.splitlines() if "/" in line and " " not in line.strip()})
                     info["models_status"] = "verified"
@@ -399,6 +416,11 @@ def execute_task(task, agent, automations, conn, scheduled):
     root, runtime = automations.parent, automations / "_heartbeat"
     try:
         cmd = command_for(task, agent, runtime)
+        if agent in COMMANDS:
+            agent_path = load_capabilities(automations).get("agents", {}).get(agent, {}).get("path")
+            if not agent_path or not os.access(agent_path, os.X_OK):
+                raise ConfigError(f"agent '{agent}' executable is unavailable; refresh AGENT-OPTIONS.md")
+            cmd[0] = agent_path
     except ConfigError as exc:
         insert_run(conn, task, scheduled, agent, "configuration_error", str(exc))
         return

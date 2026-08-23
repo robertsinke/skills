@@ -42,6 +42,10 @@ assert_contains '"models_status": "verified"' "$RUN/capabilities.json"
 assert_contains 'example-automation' "$AUTO/DASHBOARD.md"
 assert_contains 'example-automation' "$AUTO/RUNS.md"
 
+sqlite3 "$RUN/.heartbeat.db" 'DELETE FROM runs;'
+(cd "$RUN" && PATH="/usr/bin:/bin" ./heartbeat-run.sh)
+[ "$(sqlite3 "$RUN/.heartbeat.db" 'SELECT status FROM runs ORDER BY id DESC LIMIT 1;')" = ok ] || fail "cron-like PATH could not use discovered absolute agent path"
+
 INVALID="$AUTO/bad-model.md"
 sed 's/name: example-automation/name: bad-model/; s/title: Example automation/title: Bad model/; s/agent: auto/agent: cursor/; s/model: default/model: missing-model/' "$SKILL_DIR/templates/AUTOMATION.md.template" > "$INVALID"
 if python3 "$RUN/validate-heartbeat.py" "$AUTO" > "$TEST_ROOT/invalid.out" 2>&1; then fail "invalid discovered model passed"; fi
