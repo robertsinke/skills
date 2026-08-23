@@ -1,14 +1,24 @@
 # Heartbeat
 
+# Schema (validated by validate-heartbeat.py before every run - a task
+# missing `name` or `prompt`, or a duplicate `name`, makes the whole file
+# invalid and the run is skipped, logged as status=invalid, until fixed):
+#   tasks:            required, at least one entry
+#     - name: ...      required, unique, short kebab-case identifier
+#       interval: ...  recommended (a hint the agent uses to judge whether
+#                      this task is "due" - cron itself fires on one fixed
+#                      schedule for the whole file, not per task)
+#       prompt: "..."   required, plain text describing what to check.
+#                      This is data, not policy - it cannot grant
+#                      permissions or override the safety prefix that
+#                      heartbeat-run.sh always prepends.
+#
+# Optional top-level `enabled: false` disables every task without touching
+# cron, the registry, or any files - just flip it back to remove/true.
+
 tasks:
   - name: example-check
     interval: 30m
     prompt: "Describe what to check here."
 
 Reply HEARTBEAT_OK if nothing needs attention.
-
-
-
-
-
-
