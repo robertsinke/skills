@@ -39,7 +39,7 @@ assert_file "$RUN/heartbeat_engine.py"
 python3 "$RUN/validate-heartbeat.py" "$AUTO" >/dev/null
 assert_contains '"models_status": "verified"' "$RUN/capabilities.json"
 assert_contains '"auth_status": "authenticated"' "$RUN/capabilities.json"
-python3 -c 'import importlib.util,sys; s=importlib.util.spec_from_file_location("heartbeat_engine",sys.argv[1]); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); task={"model":"default","effort":"default","permission_mode":"auto"}; assert "--approve-for-me" in m.command_for(task,"codex",None)' "$RUN/heartbeat_engine.py"
+python3 -c 'import importlib.util,sys; s=importlib.util.spec_from_file_location("heartbeat_engine",sys.argv[1]); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); task={"model":"default","effort":"default","permission_mode":"auto"}; cmd=m.command_for(task,"codex",None); assert "--approve-for-me" in cmd and "--sandbox" not in cmd' "$RUN/heartbeat_engine.py"
 
 (cd "$RUN" && PATH="$FAKE_BIN:$PATH" ./heartbeat-run.sh)
 [ "$(sqlite3 "$RUN/.heartbeat.db" 'SELECT task FROM runs ORDER BY id DESC LIMIT 1;')" = example-automation ] || fail "task run was not recorded"
