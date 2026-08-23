@@ -42,49 +42,13 @@ if [ -f "$REPO/skills/automations/heartbeat/scripts/heartbeat" ]; then
   echo "linked heartbeat -> $REPO/skills/automations/heartbeat/scripts/heartbeat ($BIN_DEST)"
 fi
 
+if [ -f "$REPO/skills/voice/talk-to-me/scripts/talk-to-me" ]; then
+  chmod +x "$REPO/skills/voice/talk-to-me/scripts/talk-to-me"
+  ln -sfn "$REPO/skills/voice/talk-to-me/scripts/talk-to-me" "$BIN_DEST/talk-to-me"
+  echo "linked talk-to-me -> $REPO/skills/voice/talk-to-me/scripts/talk-to-me ($BIN_DEST)"
+fi
+
 case ":$PATH:" in
   *":$BIN_DEST:"*) : ;;
   *) echo "Note: add $BIN_DEST to your PATH manually, e.g. in ~/.zshrc: export PATH=$BIN_DEST:\$PATH" ;;
 esac
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
