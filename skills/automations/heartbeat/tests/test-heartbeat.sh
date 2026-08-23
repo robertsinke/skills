@@ -16,6 +16,8 @@ for name in claude codex agent opencode; do
     '#!/usr/bin/env bash' \
     'case "${1:-}" in' \
     '  --version) echo "fake 1.0" ;;' \
+    '  auth) echo '\''{"loggedIn":true}'\'' ;;' \
+    '  login) echo "Logged in using ChatGPT" ;;' \
     '  models) if [ "$(basename "$0")" = agent ]; then echo "test-model"; else echo "test/provider-model"; fi ;;' \
     '  *) if [ "$(basename "$0")" = codex ]; then printf '\''{"type":"item.completed","item":{"type":"agent_message","text":"HEARTBEAT_OK"}}\n'\''; else printf '\''{"result":"HEARTBEAT_OK"}\n'\''; fi ;;' \
     'esac' > "$FAKE_BIN/$name"
@@ -36,6 +38,7 @@ assert_file "$RUN/heartbeat_engine.py"
 [ ! -e "$AUTO/HEARTBEAT.md" ] || fail "clean install created legacy HEARTBEAT.md"
 python3 "$RUN/validate-heartbeat.py" "$AUTO" >/dev/null
 assert_contains '"models_status": "verified"' "$RUN/capabilities.json"
+assert_contains '"auth_status": "authenticated"' "$RUN/capabilities.json"
 
 (cd "$RUN" && PATH="$FAKE_BIN:$PATH" ./heartbeat-run.sh)
 [ "$(sqlite3 "$RUN/.heartbeat.db" 'SELECT task FROM runs ORDER BY id DESC LIMIT 1;')" = example-automation ] || fail "task run was not recorded"
@@ -51,6 +54,13 @@ sed 's/name: example-automation/name: bad-model/; s/title: Example automation/ti
 if python3 "$RUN/validate-heartbeat.py" "$AUTO" > "$TEST_ROOT/invalid.out" 2>&1; then fail "invalid discovered model passed"; fi
 assert_contains "model 'missing-model' is not available for cursor" "$TEST_ROOT/invalid.out"
 rm "$INVALID"
+
+sed 's/name: example-automation/name: logged-out/; s/title: Example automation/title: Logged out/; s/agent: auto/agent: claude/' "$SKILL_DIR/templates/AUTOMATION.md.template" > "$AUTO/logged-out.md"
+python3 -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); d["agents"]["claude"]["auth_status"]="unauthenticated"; open(p,"w").write(json.dumps(d))' "$RUN/capabilities.json"
+if python3 "$RUN/validate-heartbeat.py" "$AUTO" > "$TEST_ROOT/auth.out" 2>&1; then fail "logged-out agent passed validation"; fi
+assert_contains "agent 'claude' is installed but not authenticated" "$TEST_ROOT/auth.out"
+rm "$AUTO/logged-out.md"
+PATH="$FAKE_BIN:$PATH" python3 "$RUN/heartbeat_engine.py" scan "$AUTO"
 
 LEGACY="$TEST_ROOT/legacy"; mkdir -p "$LEGACY/automations/_heartbeat" "$LEGACY/.ok/templates"
 printf '%s\n' '.heartbeat.db' '.heartbeat.lock/' > "$LEGACY/automations/_heartbeat/.gitignore"

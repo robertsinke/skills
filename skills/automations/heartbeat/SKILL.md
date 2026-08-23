@@ -82,14 +82,16 @@ file/property errors appear in `DASHBOARD.md` and `heartbeat validate` output.
 ## Local agent options
 
 `heartbeat capabilities refresh` scans installed built-in agent CLIs without
-using a model, writes `_heartbeat/capabilities.json`, and generates
+using a model, checks authentication where the CLI exposes a deterministic
+status command, writes `_heartbeat/capabilities.json`, and generates
 `AGENT-OPTIONS.md`. It refreshes during init, before validation when needed,
 and at most daily during dispatcher runs.
 
 The scanner distinguishes verified model lists from unavailable discovery.
 Cursor and OpenCode currently expose model-list commands; Claude and Codex may
-accept model IDs without exposing an account-complete list. Harness absence
-and verified-invalid models are fatal validation errors. Unverifiable models
+accept model IDs without exposing an account-complete list. Harness absence,
+known logged-out state, and verified-invalid models are fatal validation
+errors. Unverifiable models
 remain explicitly unverified and can still fail loudly at runtime.
 
 ## Scheduling and missed runs
