@@ -23,12 +23,12 @@ echo "registered $PROJECT_DIR ($REGISTRY)"
 
 AGENTS_MD="$PROJECT_DIR/AGENTS.md"
 POINTER="## Automation
-Scheduled automation tasks live in automations/tasks/ (overview: automations/DASHBOARD.md, history: automations/RUNS.md; runtime and local agent choices: automations/_heartbeat/)."
+Scheduled automation tasks live in automations/tasks/ (overview: automations/INDEX.md; per-task history: automations/tasks/.execution-reports/<task-name>.md; runtime and local agent choices: automations/_heartbeat/)."
 if [ -f "$AGENTS_MD" ]; then
-  if grep -Eq '^Scheduled (checks live (under|in)|automations live in) automations/' "$AGENTS_MD"; then
+  if grep -Eq '^Scheduled (checks live (under|in)|automations live in|automation tasks live in) automations/' "$AGENTS_MD"; then
     python3 -c 'from pathlib import Path; import sys
 p=Path(sys.argv[1]); replacement=sys.argv[2]
-lines=[replacement if line.startswith(("Scheduled checks live under automations/", "Scheduled checks live in automations/", "Scheduled automations live in automations/")) else line for line in p.read_text().splitlines()]
+lines=[replacement if line.startswith(("Scheduled checks live under automations/", "Scheduled checks live in automations/", "Scheduled automations live in automations/", "Scheduled automation tasks live in automations/")) else line for line in p.read_text().splitlines()]
 p.write_text("\n".join(lines)+"\n")' "$AGENTS_MD" "${POINTER#*$'\n'}"
   elif ! grep -qF "Scheduled automation tasks live in automations/tasks/" "$AGENTS_MD"; then
     printf "\n%s\n" "$POINTER" >> "$AGENTS_MD"

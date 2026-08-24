@@ -51,10 +51,9 @@ done < "$SKILL_DIR/templates/runtime.gitignore.template"
 
 GENERATED_IGNORE="$AUTOMATIONS_DIR/.gitignore"
 touch "$GENERATED_IGNORE"
-sed -i.bak '/^AGENT-OPTIONS\.md$/d' "$GENERATED_IGNORE" && rm -f "$GENERATED_IGNORE.bak"
-for generated in DASHBOARD.md RUNS.md; do
-  grep -qxF "$generated" "$GENERATED_IGNORE" || echo "$generated" >> "$GENERATED_IGNORE"
-done
+sed -i.bak -e '/^AGENT-OPTIONS\.md$/d' -e '/^DASHBOARD\.md$/d' -e '/^RUNS\.md$/d' "$GENERATED_IGNORE" && rm -f "$GENERATED_IGNORE.bak"
+grep -qxF "INDEX.md" "$GENERATED_IGNORE" || echo "INDEX.md" >> "$GENERATED_IGNORE"
+rm -f "$AUTOMATIONS_DIR/DASHBOARD.md" "$AUTOMATIONS_DIR/RUNS.md"
 
 cp "$SKILL_DIR/scripts/heartbeat-run.sh" "$RUNTIME_DIR/heartbeat-run.sh"
 cp "$SKILL_DIR/scripts/heartbeat-report.sh" "$RUNTIME_DIR/heartbeat-report.sh"
@@ -79,7 +78,7 @@ fi
 
 find "$AUTOMATIONS_DIR/.ok/templates" "$AUTOMATIONS_DIR/.templates" -depth -type d -empty -exec rmdir {} \; 2>/dev/null || true
 
-echo "scaffolded $AUTOMATIONS_DIR (tasks/, DASHBOARD.md, RUNS.md, CONTEXT.md)"
+echo "scaffolded $AUTOMATIONS_DIR (tasks/, INDEX.md, CONTEXT.md)"
 echo "runtime: $RUNTIME_DIR (.heartbeat.db, AGENT-OPTIONS.md, engine, runner, reporter, validator)"
 echo "templates: $TEMPLATE_DIR"
 echo "not yet registered or scheduled - run: heartbeat register && heartbeat schedule enable"

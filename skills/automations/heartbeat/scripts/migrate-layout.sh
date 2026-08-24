@@ -22,7 +22,7 @@ move_if_present() {
 }
 
 move_if_present "$LEGACY_DIR/HEARTBEAT.md" "$AUTOMATIONS_DIR/HEARTBEAT.md"
-move_if_present "$LEGACY_DIR/RUNS.md" "$AUTOMATIONS_DIR/RUNS.md"
+rm -f "$LEGACY_DIR/RUNS.md"  # generated view, not source data; INDEX.md regenerates from .heartbeat.db
 
 for name in .heartbeat.db .heartbeat.json .heartbeat.lock heartbeat-run.sh heartbeat-report.sh validate-heartbeat.py; do
   move_if_present "$LEGACY_DIR/$name" "$RUNTIME_DIR/$name"

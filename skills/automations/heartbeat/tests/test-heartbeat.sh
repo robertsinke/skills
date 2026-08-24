@@ -12,15 +12,30 @@ assert_contains() { grep -qF "$1" "$2" || fail "$2 lacks $1"; }
 
 FAKE_BIN="$TEST_ROOT/bin"; mkdir -p "$FAKE_BIN"
 for name in claude codex agent opencode; do
-  printf '%s\n' \
-    '#!/usr/bin/env bash' \
-    'case "${1:-}" in' \
-    '  --version) echo "fake 1.0" ;;' \
-    '  auth) echo '\''{"loggedIn":true}'\'' ;;' \
-    '  login) echo "Logged in using ChatGPT" ;;' \
-    '  models) if [ "$(basename "$0")" = agent ]; then echo "test-model"; else echo "test/provider-model"; fi ;;' \
-    '  *) if [ "$(basename "$0")" = codex ]; then printf '\''{"type":"item.completed","item":{"type":"agent_message","text":"HEARTBEAT_OK"}}\n'\''; else printf '\''{"result":"HEARTBEAT_OK"}\n'\''; fi ;;' \
-    'esac' > "$FAKE_BIN/$name"
+  cat > "$FAKE_BIN/$name" <<'FAKE_AGENT'
+#!/usr/bin/env bash
+case "${1:-}" in
+  --version) echo "fake 1.0" ;;
+  auth) echo '{"loggedIn":true}' ;;
+  login) echo "Logged in using ChatGPT" ;;
+  models) if [ "$(basename "$0")" = agent ]; then echo "test-model"; else echo "test/provider-model"; fi ;;
+  *)
+    # Simulate a well-behaved agent honoring the "append your findings to
+    # <report_path>" instruction embedded in the prompt (last argument).
+    prompt="${*: -1}"
+    report_path=$(printf '%s' "$prompt" | grep -oE 'automations/tasks/\.execution-reports/[a-z0-9-]+\.md' | head -1)
+    if [ -n "$report_path" ]; then
+      mkdir -p "$(dirname "$report_path")"
+      printf '## fake-run\nfake findings\n' >> "$report_path"
+    fi
+    if [ "$(basename "$0")" = codex ]; then
+      printf '{"type":"item.completed","item":{"type":"agent_message","text":"HEARTBEAT_OK"}}\n'
+    else
+      printf '{"result":"HEARTBEAT_OK"}\n'
+    fi
+    ;;
+esac
+FAKE_AGENT
   chmod +x "$FAKE_BIN/$name"
 done
 
@@ -29,16 +44,15 @@ mkdir -p "$PROJECT/.ok/templates"
 (cd "$PROJECT" && PATH="$FAKE_BIN:$PATH" bash "$SKILL_DIR/scripts/init.sh" >/dev/null)
 AUTO="$PROJECT/automations"; RUN="$AUTO/_heartbeat"
 assert_file "$AUTO/tasks/example-automation.md"
-assert_file "$AUTO/DASHBOARD.md"
+assert_file "$AUTO/INDEX.md"
 assert_file "$RUN/AGENT-OPTIONS.md"
-assert_file "$AUTO/RUNS.md"
 assert_file "$AUTO/tasks/.ok/templates/automation.md"
 assert_file "$AUTO/.ok/frontmatter.yml"
 assert_file "$AUTO/tasks/.ok/frontmatter.yml"
 assert_file "$RUN/heartbeat_engine.py"
 [ ! -e "$AUTO/HEARTBEAT.md" ] || fail "clean install created legacy HEARTBEAT.md"
 [ ! -e "$AUTO/AGENT-OPTIONS.md" ] || fail "agent options remained at automations root"
-[ "$(find "$AUTO" -maxdepth 1 -type f -name '*.md' -exec basename {} \; | sort | tr '\n' ' ')" = "CONTEXT.md DASHBOARD.md RUNS.md " ] || fail "unexpected Markdown file at automations root"
+[ "$(find "$AUTO" -maxdepth 1 -type f -name '*.md' -exec basename {} \; | sort | tr '\n' ' ')" = "CONTEXT.md INDEX.md " ] || fail "unexpected Markdown file at automations root"
 python3 "$RUN/validate-heartbeat.py" "$AUTO" >/dev/null
 python3 "$RUN/validate-heartbeat.py" "$AUTO/tasks" >/dev/null
 python3 "$RUN/validate-heartbeat.py" "$AUTO/tasks/example-automation.md" >/dev/null
@@ -48,10 +62,18 @@ python3 -c 'import importlib.util,sys; s=importlib.util.spec_from_file_location(
 
 (cd "$RUN" && PATH="$FAKE_BIN:$PATH" ./heartbeat-run.sh)
 [ "$(sqlite3 "$RUN/.heartbeat.db" 'SELECT task FROM runs ORDER BY id DESC LIMIT 1;')" = example-automation ] || fail "task run was not recorded"
-assert_contains 'example-automation' "$AUTO/DASHBOARD.md"
-assert_contains 'tasks/example-automation.md' "$AUTO/DASHBOARD.md"
-assert_contains '_heartbeat/AGENT-OPTIONS.md' "$AUTO/DASHBOARD.md"
-assert_contains 'example-automation' "$AUTO/RUNS.md"
+assert_contains 'example-automation' "$AUTO/INDEX.md"
+assert_contains 'tasks/example-automation.md' "$AUTO/INDEX.md"
+assert_contains '_heartbeat/AGENT-OPTIONS.md' "$AUTO/INDEX.md"
+
+# The fake agent honored the "append your findings" instruction embedded in
+# the prompt: the run should carry a report_path, and INDEX.md should link to
+# the report instead of showing inline fallback text.
+REPORT="$AUTO/tasks/.execution-reports/example-automation.md"
+assert_file "$REPORT"
+assert_contains 'fake findings' "$REPORT"
+[ "$(sqlite3 "$RUN/.heartbeat.db" 'SELECT report_path FROM runs ORDER BY id DESC LIMIT 1;')" = "tasks/.execution-reports/example-automation.md" ] || fail "run was not recorded with a report_path"
+assert_contains '[report](tasks/.execution-reports/example-automation.md)' "$AUTO/INDEX.md"
 
 (cd "$PROJECT" && HOME="$TEST_ROOT/home" bash "$SKILL_DIR/scripts/heartbeat" automations add second-task >/dev/null)
 assert_file "$AUTO/tasks/second-task.md"
@@ -60,7 +82,16 @@ rm "$AUTO/tasks/second-task.md"
 printf '%s\n' '# Test' '' '## Automation' 'Scheduled checks live in automations/ (checklist: HEARTBEAT.md, history: RUNS.md; runtime: \_heartbeat/).' > "$PROJECT/AGENTS.md"
 (cd "$PROJECT" && HOME="$TEST_ROOT/home" bash "$SKILL_DIR/scripts/heartbeat" register >/dev/null)
 assert_contains 'Scheduled automation tasks live in automations/tasks/' "$PROJECT/AGENTS.md"
+assert_contains 'INDEX.md' "$PROJECT/AGENTS.md"
 [ "$(grep -c '^Scheduled ' "$PROJECT/AGENTS.md")" = 1 ] || fail "registration duplicated the automation pointer"
+
+# Re-registering a project stuck on the pre-INDEX.md pointer wording (as any
+# already-registered project has post-upgrade) must update it, not leave it stale.
+printf '%s\n' '# Test' '' '## Automation' 'Scheduled automation tasks live in automations/tasks/ (overview: automations/DASHBOARD.md, history: automations/RUNS.md; runtime and local agent choices: automations/_heartbeat/).' > "$PROJECT/AGENTS.md"
+(cd "$PROJECT" && HOME="$TEST_ROOT/home" bash "$SKILL_DIR/scripts/heartbeat" register >/dev/null)
+assert_contains 'INDEX.md' "$PROJECT/AGENTS.md"
+grep -q 'DASHBOARD.md' "$PROJECT/AGENTS.md" && fail "re-registration left stale DASHBOARD.md reference"
+[ "$(grep -c '^Scheduled ' "$PROJECT/AGENTS.md")" = 1 ] || fail "re-registration duplicated the automation pointer"
 
 sqlite3 "$RUN/.heartbeat.db" 'DELETE FROM runs;'
 (cd "$RUN" && PATH="/usr/bin:/bin" ./heartbeat-run.sh)

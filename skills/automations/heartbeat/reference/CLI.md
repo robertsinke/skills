@@ -25,9 +25,10 @@ heartbeat automations delete [--purge] [--project <path>]
 ```
 
 `add` stamps `automations/tasks/<name>.md` from the local automation template.
-`show` refreshes and prints `DASHBOARD.md`. Default deletion keeps task files
+`show` refreshes and prints `INDEX.md`. Default deletion keeps task files
 and history; `--purge` removes heartbeat runtime and generated views, but keeps
-user-authored automation files.
+user-authored automation files and `tasks/.execution-reports/` (accumulated
+content, not a build artifact — delete it yourself if you actually want it gone).
 
 ## Local agent options
 
@@ -48,5 +49,6 @@ heartbeat runs show <id>
 heartbeat runs annotate <id> "<note>"
 ```
 
-Run history is task-qualified. Prefer these commands or generated `RUNS.md`
-over querying `_heartbeat/.heartbeat.db` directly.
+Run history is task-qualified. Prefer these commands, `INDEX.md`, or a task's
+own `tasks/.execution-reports/<name>.md` over querying `_heartbeat/.heartbeat.db`
+directly.

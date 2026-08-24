@@ -29,7 +29,12 @@ CREATE TABLE IF NOT EXISTS runs (
   git_before    TEXT,
   git_after     TEXT,
   dirty_files   INTEGER,
-  note          TEXT
+  note          TEXT,
+  -- path (relative to automations/) to the section the agent itself appended to
+  -- tasks/.execution-reports/<task-name>.md this run, or NULL if nothing was
+  -- written (crash before the agent could write, or permission_mode: restricted).
+  -- `output` only holds fallback diagnostic text when this is NULL.
+  report_path   TEXT
 );
 
 

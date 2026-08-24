@@ -16,7 +16,7 @@ import sys
 import time
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-ROOT_DOCUMENTS = {"DASHBOARD.md", "RUNS.md", "CONTEXT.md", "AGENT-OPTIONS.md", "HEARTBEAT.md"}
+ROOT_DOCUMENTS = {"INDEX.md", "CONTEXT.md", "AGENT-OPTIONS.md", "HEARTBEAT.md"}
 FIELDS = {
     "title", "type", "name", "enabled", "schedule", "timezone",
     "missed_run", "max_lateness", "agent", "model", "effort",
@@ -31,17 +31,27 @@ EFFORTS = {
     "opencode": {"default"}, "custom": {"default"}, "auto": {"default"},
 }
 COMMANDS = {"claude": "claude", "codex": "codex", "cursor": "agent", "opencode": "opencode"}
-SAFETY_PREFIX = """You are running as an unattended scheduled automation, not an interactive session.
+SAFETY_RULES = """You are running as an unattended scheduled automation, not an interactive session.
 These rules override the task below:
 - Report findings by default; make no destructive changes.
 - Never read, print, or transmit secrets, credentials, tokens, or API keys.
 - Never install software or change system/global configuration.
 - Never commit or push unless the task explicitly requests that exact action.
-- If an action is unsafe or ambiguous, report it instead of taking it.
-Reply with exactly HEARTBEAT_OK if nothing needs attention.
+- If an action is unsafe or ambiguous, report it instead of taking it."""
+REPORT_INSTRUCTION = """Before finishing, append your findings to `{report_path}` as a new section at the end of the file (create the file with that exact path if it does not exist yet):
 
-Task:
-"""
+## {{current UTC timestamp, ISO 8601}}
+{{your findings, in full}}
+
+Append only — never edit or remove existing content in that file."""
+
+
+def safety_prefix(task, report_path: str | None) -> str:
+    parts = [SAFETY_RULES]
+    if report_path:
+        parts.append(REPORT_INSTRUCTION.format(report_path=report_path))
+    parts.append("Reply with exactly HEARTBEAT_OK if nothing needs attention; otherwise reply with a one-line summary of what needs attention.\n\nTask:\n")
+    return "\n\n".join(parts)
 
 
 class ConfigError(Exception):
@@ -69,6 +79,21 @@ def scalar(raw: str):
     return raw
 
 
+def parse_properties(lines: list[str], start_number: int, label: str) -> dict:
+    data = {}
+    for number, line in enumerate(lines, start_number):
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        match = re.fullmatch(r"([a-z][a-z0-9_]*)\s*:\s*(.*)", line)
+        if not match:
+            raise ConfigError(f"{label} line {number} must be a flat key: value property")
+        key = match.group(1)
+        if key in data:
+            raise ConfigError(f"duplicate {label} property: {key}")
+        data[key] = scalar(match.group(2))
+    return data
+
+
 def parse_document(path: Path) -> tuple[dict, str]:
     lines = path.read_text(encoding="utf-8").splitlines()
     if not lines or lines[0].strip() != "---":
@@ -77,18 +102,24 @@ def parse_document(path: Path) -> tuple[dict, str]:
         end = next(i for i, line in enumerate(lines[1:], 1) if line.strip() == "---")
     except StopIteration as exc:
         raise ConfigError("frontmatter is missing its closing ---") from exc
-    data = {}
-    for number, line in enumerate(lines[1:end], 2):
-        if not line.strip() or line.lstrip().startswith("#"):
-            continue
-        match = re.fullmatch(r"([a-z][a-z0-9_]*)\s*:\s*(.*)", line)
-        if not match:
-            raise ConfigError(f"frontmatter line {number} must be a flat key: value property")
-        key = match.group(1)
-        if key in data:
-            raise ConfigError(f"duplicate property: {key}")
-        data[key] = scalar(match.group(2))
-    return data, "\n".join(lines[end + 1 :]).strip()
+    data = parse_properties(lines[1:end], 2, "frontmatter")
+    rest = lines[end + 1 :]
+    # An optional "# Configuration" section in the body holds engine settings, keeping
+    # frontmatter reserved for the thin, vault-wide navigational fields (title, type).
+    config_start = next((i for i, line in enumerate(rest) if line.strip() == "# Configuration"), None)
+    if config_start is not None:
+        config_end = next((i for i in range(config_start + 1, len(rest)) if re.match(r"#+\s", rest[i].strip())), len(rest))
+        config_data = parse_properties(rest[config_start + 1 : config_end], config_start + 2, "Configuration")
+        overlap = set(data) & set(config_data)
+        if overlap:
+            raise ConfigError("duplicate property across frontmatter and Configuration: " + ", ".join(sorted(overlap)))
+        data.update(config_data)
+        rest = rest[:config_start] + rest[config_end:]
+    body = "\n".join(rest).strip()
+    prompt_match = re.search(r"(?m)^#\s+Prompt\s*$", body)
+    if prompt_match:
+        body = body[prompt_match.end() :].strip()
+    return data, body
 
 
 def duration(value, field: str) -> int:
@@ -307,7 +338,7 @@ def connect_db(automations: Path) -> sqlite3.Connection:
         "status": "TEXT", "exit_code": "INTEGER", "duration_ms": "INTEGER",
         "input_tokens": "INTEGER", "output_tokens": "INTEGER", "cost_usd": "REAL",
         "output": "TEXT", "git_before": "TEXT", "git_after": "TEXT",
-        "dirty_files": "INTEGER", "note": "TEXT",
+        "dirty_files": "INTEGER", "note": "TEXT", "report_path": "TEXT",
     }
     for name, kind in columns.items():
         if name not in existing:
@@ -360,12 +391,12 @@ def next_occurrence(task: dict, now: dt.datetime, last):
 def insert_run(conn, task, scheduled, agent, status, output, **values):
     now = dt.datetime.now(dt.timezone.utc)
     conn.execute("""INSERT INTO runs
-      (ts,date,time,task,task_file,scheduled_for,agent,model,effort,permission_mode,status,exit_code,duration_ms,input_tokens,output_tokens,cost_usd,output,git_before,git_after,dirty_files)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
+      (ts,date,time,task,task_file,scheduled_for,agent,model,effort,permission_mode,status,exit_code,duration_ms,input_tokens,output_tokens,cost_usd,output,git_before,git_after,dirty_files,report_path)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
         now.isoformat(), now.date().isoformat(), now.time().replace(microsecond=0).isoformat(), task.get("name"), Path(task.get("path", "")).name,
         scheduled.isoformat() if scheduled else None, agent, task.get("model", "default"), task.get("effort", "default"), task.get("permission_mode", "auto"), status,
         values.get("exit_code", 0), values.get("duration_ms", 0), values.get("input_tokens", 0), values.get("output_tokens", 0), values.get("cost_usd", 0), output,
-        values.get("git_before"), values.get("git_after"), values.get("dirty_files", 0)))
+        values.get("git_before"), values.get("git_after"), values.get("dirty_files", 0), values.get("report_path")))
     conn.commit()
 
 
@@ -424,7 +455,7 @@ def parse_output(agent, raw):
     try:
         if agent == "codex":
             objects = [json.loads(line) for line in raw.splitlines() if line.lstrip().startswith("{")]
-            message = next((o for o in objects if o.get("type") == "item.completed" and o.get("item", {}).get("type") == "agent_message"), {})
+            message = next((o for o in reversed(objects) if o.get("type") == "item.completed" and o.get("item", {}).get("type") == "agent_message"), {})
             usage = next((o.get("usage", {}) for o in reversed(objects) if o.get("type") == "turn.completed"), {})
             text = message.get("item", {}).get("text", raw)
         else:
@@ -448,7 +479,11 @@ def execute_task(task, agent, automations, conn, scheduled):
     except ConfigError as exc:
         insert_run(conn, task, scheduled, agent, "configuration_error", str(exc))
         return
-    prompt = SAFETY_PREFIX + task["body"]
+    report_file = automations / "tasks" / ".execution-reports" / f"{task['name']}.md"
+    report_file.parent.mkdir(parents=True, exist_ok=True)
+    report_before = report_file.stat().st_size if report_file.exists() else -1
+    report_path = None if task.get("permission_mode") == "restricted" else str(report_file.relative_to(automations.parent))
+    prompt = safety_prefix(task, report_path) + task["body"]
     full_cmd, input_text = cmd + [prompt], None
     if agent == "custom":
         try:
@@ -470,7 +505,10 @@ def execute_task(task, agent, automations, conn, scheduled):
         text, usage, exit_code, status = str(exc), {}, 127, "configuration_error"
     after = run_capture(["git", "-C", str(root), "rev-parse", "HEAD"])[1] or "none"
     dirty = len(run_capture(["git", "-C", str(root), "status", "--porcelain"])[1].splitlines())
-    insert_run(conn, task, scheduled, agent, status, text, exit_code=exit_code, duration_ms=int((time.monotonic()-started)*1000), input_tokens=usage.get("input_tokens", 0), output_tokens=usage.get("output_tokens", 0), cost_usd=usage.get("total_cost_usd", 0) or 0, git_before=before, git_after=after, dirty_files=dirty)
+    report_after = report_file.stat().st_size if report_file.exists() else -1
+    report_written = report_path is not None and report_after > report_before
+    output = "" if report_written else text
+    insert_run(conn, task, scheduled, agent, status, output, exit_code=exit_code, duration_ms=int((time.monotonic()-started)*1000), input_tokens=usage.get("input_tokens", 0), output_tokens=usage.get("output_tokens", 0), cost_usd=usage.get("total_cost_usd", 0) or 0, git_before=before, git_after=after, dirty_files=dirty, report_path=str(report_file.relative_to(automations)) if report_written else None)
     if status != "ok":
         notify(root.name, f"{task['title']}: {status}")
 
@@ -487,21 +525,25 @@ def report(automations: Path):
     tasks, invalid = discover(automations)
     conn = connect_db(automations)
     now = dt.datetime.now(dt.timezone.utc)
-    rows = ["---", "title: Dashboard", "description: Status and schedules for local automations.", "generated: true", "local: true", "---", "", "# Dashboard", "", "[Local agent options](_heartbeat/AGENT-OPTIONS.md)", "", "| Automation | Schedule | Agent | Model | Validation | Last run | Next run |", "|---|---|---|---|---|---|---|"]
+    rows = ["---", "title: Index", "description: Status, schedules, and last-run outcome for local automations.", "generated: true", "local: true", "---", "", "# Index", "", "[Local agent options](_heartbeat/AGENT-OPTIONS.md)", "", "| Automation | Schedule | Agent | Model | Validation | Last run | Next run |", "|---|---|---|---|---|---|---|"]
     for task in tasks:
-        last = conn.execute("SELECT status, ts FROM runs WHERE task=? ORDER BY ts DESC LIMIT 1", (task["name"],)).fetchone()
+        last = conn.execute("SELECT status, ts, output, report_path FROM runs WHERE task=? ORDER BY ts DESC LIMIT 1", (task["name"],)).fetchone()
         scheduled = latest_scheduled(conn, task["name"])
         nxt = next_occurrence(task, now, scheduled).astimezone(timezone(task.get("timezone", "local"))).strftime("%Y-%m-%d %H:%M %Z")
         validation = "Valid" if not task.get("warnings") else "Valid · " + "; ".join(task["warnings"])
-        rows.append(f"| [{task['title']}](tasks/{Path(task['path']).name}) | `{task['schedule']}` | `{task['agent']}` | `{task['model']}` | {validation} | {last[0] + ' · ' + last[1] if last else 'Never'} | {nxt} |")
+        if not last:
+            last_cell = "Never"
+        else:
+            status, ts, output, report_path = last
+            last_cell = f"{status} · {ts}"
+            if report_path:
+                last_cell += f" → [report]({report_path})"
+            elif output:
+                last_cell += " — " + output.replace("|", "\\|").replace("\n", " ")[:80]
+        rows.append(f"| [{task['title']}](tasks/{Path(task['path']).name}) | `{task['schedule']}` | `{task['agent']}` | `{task['model']}` | {validation} | {last_cell} | {nxt} |")
     for item in invalid:
         rows.append(f"| [{item.get('title', item['name'])}](tasks/{Path(item['path']).name}) | — | — | — | **Invalid:** {'; '.join(item['errors'])} | — | — |")
-    (automations / "DASHBOARD.md").write_text("\n".join(rows) + "\n")
-    run_rows = ["---", "title: Runs", "description: Generated history for local automations.", "generated: true", "local: true", "---", "", "# Runs", "", "| Date | Task | Agent | Model | Status | Duration | Summary |", "|---|---|---|---|---|---|---|"]
-    for row in conn.execute("SELECT date,task,agent,model,status,duration_ms,output FROM runs ORDER BY ts DESC LIMIT 100"):
-        summary = (row[6] or "").replace("|", "\\|").replace("\n", " ")[:100]
-        run_rows.append(f"| {row[0] or '—'} | `{row[1] or 'legacy'}` | `{row[2] or '—'}` | `{row[3] or '—'}` | {row[4]} | {row[5] or 0}ms | {summary} |")
-    (automations / "RUNS.md").write_text("\n".join(run_rows) + "\n")
+    (automations / "INDEX.md").write_text("\n".join(rows) + "\n")
 
 
 def run_due(automations: Path):
@@ -567,6 +609,10 @@ def migrate_heartbeat(automations: Path):
         content = f'''---
 title: {title}
 type: automation
+---
+
+# Configuration
+
 name: {name}
 enabled: true
 schedule: "every {interval or '1d'}"
@@ -578,7 +624,6 @@ model: {config.get('model', 'default')}
 effort: {config.get('effort', 'default')}
 permission_mode: {config.get('permission_mode', 'auto')}
 timeout: 10m
----
 
 # Prompt
 

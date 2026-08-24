@@ -1,6 +1,10 @@
 ---
 title: Example automation
 type: automation
+---
+
+# Configuration
+
 name: example-automation
 enabled: true
 schedule: "every 1d"
@@ -12,7 +16,6 @@ model: default
 effort: default
 permission_mode: auto
 timeout: 10m
----
 
 # Prompt
 

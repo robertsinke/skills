@@ -119,8 +119,8 @@ automations_show() {
   echo "---- validation ----"
   python3 "$runtime/validate-heartbeat.py" "$automations" 2>&1 || true
   python3 "$runtime/heartbeat_engine.py" report "$automations"
-  echo "---- DASHBOARD.md ----"
-  cat "$automations/DASHBOARD.md" 2>/dev/null || echo "(missing)"
+  echo "---- INDEX.md ----"
+  cat "$automations/INDEX.md" 2>/dev/null || echo "(missing)"
   echo "---- last run ----"
   local db="$runtime/.heartbeat.db"
   if [ -f "$db" ]; then
@@ -176,8 +176,9 @@ automations_delete() {
   bash "$SKILL_DIR/scripts/unregister.sh" "$project"
   if [ "$purge" -eq 1 ]; then
     rm -rf "$runtime"
-    rm -f "$automations/DASHBOARD.md" "$automations/RUNS.md" "$automations/tasks/.ok/templates/automation.md" "$automations/tasks/.templates/automation.md"
+    rm -f "$automations/INDEX.md" "$automations/tasks/.ok/templates/automation.md" "$automations/tasks/.templates/automation.md"
     echo "Deleted cron entry, registry entry, heartbeat files, and $runtime (history is gone)."
+    echo "Left $automations/tasks/.execution-reports/ in place - it's accumulated content, not runtime state. Delete it yourself if you want it gone too."
   else
     echo "Deleted cron entry and registry entry. Automation files and history remain in $automations."
     echo "Pass --purge to also delete those files."
@@ -197,7 +198,7 @@ runs_list() {
   if [ ! -f "$db" ]; then echo "No .heartbeat.db at $db" >&2; exit 1; fi
   sqlite3 "$db" ".mode markdown
 .headers on
-SELECT id, date, time, task, agent, model, effort, status, duration_ms||'ms' AS duration, substr(output,1,60) AS summary FROM runs ORDER BY ts DESC LIMIT 20;"
+SELECT id, date, time, task, agent, model, effort, status, duration_ms||'ms' AS duration, COALESCE(NULLIF(substr(output,1,60), ''), report_path, '') AS summary FROM runs ORDER BY ts DESC LIMIT 20;"
 }
 
 capabilities() {

@@ -5,8 +5,8 @@ Scheduled checks for this project.
 ## Human interface
 
 - `tasks/` contains one editable Markdown file per scheduled task.
-- `DASHBOARD.md` — generated status, validation, and next-run overview
-- `RUNS.md` — generated run history
+- `tasks/.execution-reports/<task-name>.md` — the task's own accumulating history, written by the agent itself each run (append-only).
+- `INDEX.md` — generated status, validation, next-run, and last-run overview per task, linking into each task's execution report.
 
 ## Runtime
 
